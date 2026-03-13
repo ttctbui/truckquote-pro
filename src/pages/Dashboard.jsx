@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
+import ttcLogo from '../assets/TTC_Logo_022020-2.png'
+import manuStrip from '../assets/All_Manu_062025.png'
 
 export default function Dashboard() {
   const { profile, signOut } = useAuth()
@@ -88,21 +90,34 @@ export default function Dashboard() {
   const inputClass = "bg-gray-800 text-white rounded-lg px-3 py-1.5 border border-gray-700 focus:outline-none focus:border-blue-500 text-sm"
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      <div className="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between">
-        <div>
-          <span className="text-xl font-bold tracking-widest text-white">TTC QUOTE</span>
-          <span className="ml-2 text-xs bg-red-800 text-red-200 px-2 py-0.5 rounded">BETA</span>
+    <div className="min-h-screen text-white" style={{background:'#0D1B2A'}}>
+      {/* Topbar */}
+      <div style={{background:'#0D1B2A', borderBottom:'1px solid #1e3a5f'}}>
+        <div className="px-6 py-2 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div style={{background:'white', borderRadius:'8px', padding:'4px 8px'}}>
+              <img src={ttcLogo} alt="Tom's Truck Center" style={{height:'32px', width:'auto'}} />
+            </div>
+            <div>
+              <span style={{fontFamily:'Bebas Neue, sans-serif', fontSize:'22px', letterSpacing:'3px', color:'white'}}>TTC QUOTE</span>
+              <span className="ml-2 text-xs px-2 py-0.5 rounded" style={{background:'#7f1d1d', color:'#fca5a5'}}>BETA</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-gray-400 text-sm">{profile?.full_name || profile?.email} · {profile?.role}</span>
+            <button onClick={() => navigate('/stats')} className="text-gray-400 hover:text-white text-sm transition-colors">Stats</button>
+            <button onClick={() => navigate('/settings')} className="text-gray-400 hover:text-white text-sm transition-colors">Settings</button>
+            <button onClick={signOut} className="text-gray-500 hover:text-white text-sm transition-colors">Sign out</button>
+          </div>
         </div>
-        <div className="flex items-center gap-4">
-          <span className="text-gray-400 text-sm">{profile?.full_name || profile?.email} · {profile?.role}</span>
-          <button onClick={() => navigate('/stats')} className="text-gray-400 hover:text-white text-sm transition-colors">Stats</button>
-          <button onClick={() => navigate('/settings')} className="text-gray-400 hover:text-white text-sm transition-colors">Settings</button>
-          <button onClick={signOut} className="text-gray-500 hover:text-white text-sm transition-colors">Sign out</button>
+        {/* Manufacturer strip */}
+        <div style={{background:'#112240', borderTop:'1px solid #1e3a5f', padding:'5px 24px'}}>
+          <img src={manuStrip} alt="Isuzu · Ford · Hino · Mitsubishi Fuso · UD Trucks" style={{height:'28px', width:'auto'}} />
         </div>
       </div>
 
       <div className="max-w-6xl mx-auto px-6 py-8">
+        {/* Stats */}
         <div className="grid grid-cols-5 gap-4 mb-8">
           {[
             { label: 'Total Quotes', value: stats.total },
@@ -111,18 +126,20 @@ export default function Dashboard() {
             { label: 'Lost', value: stats.lost },
             { label: 'Close Ratio', value: `${stats.closeRatio}%` },
           ].map(s => (
-            <div key={s.label} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <div key={s.label} style={{background:'#112240', border:'1px solid #1e3a5f'}} className="rounded-xl p-4">
               <p className="text-gray-400 text-xs mb-1">{s.label}</p>
               <p className="text-3xl font-bold text-white">{s.value}</p>
             </div>
           ))}
         </div>
 
+        {/* Header + filters */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex gap-2 flex-wrap">
             {filterOptions.map(f => (
               <button key={f.key} onClick={() => setFilter(f.key)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${filter === f.key ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-900 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${filter === f.key ? 'bg-red-700 border-red-600 text-white' : 'text-gray-400 hover:border-gray-500'}`}
+                style={filter !== f.key ? {background:'#112240', borderColor:'#1e3a5f'} : {}}>
                 {f.label}
               </button>
             ))}
@@ -133,7 +150,8 @@ export default function Dashboard() {
           </button>
         </div>
 
-        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        {/* Quotes table */}
+        <div style={{background:'#112240', border:'1px solid #1e3a5f'}} className="rounded-xl overflow-hidden">
           {loading ? (
             <div className="text-center py-12 text-gray-500">Loading...</div>
           ) : filteredQuotes.length === 0 ? (
@@ -141,7 +159,7 @@ export default function Dashboard() {
           ) : (
             <table className="w-full">
               <thead>
-                <tr className="border-b border-gray-800">
+                <tr style={{borderBottom:'1px solid #1e3a5f'}}>
                   <th className="text-left text-gray-400 text-xs font-medium px-4 py-3">Quote #</th>
                   <th className="text-left text-gray-400 text-xs font-medium px-4 py-3">Customer</th>
                   <th className="text-left text-gray-400 text-xs font-medium px-4 py-3">Vehicle</th>
@@ -154,7 +172,7 @@ export default function Dashboard() {
               </thead>
               <tbody>
                 {filteredQuotes.map(q => (
-                  <tr key={q.id} className="border-b border-gray-800 hover:bg-gray-800 transition-colors">
+                  <tr key={q.id} style={{borderBottom:'1px solid #1e3a5f'}} className="hover:bg-blue-950 transition-colors">
                     <td className="px-4 py-3 text-sm font-mono text-gray-300">{q.quote_number}</td>
                     <td className="px-4 py-3 text-sm text-white">
                       <div>{q.customer_name || '—'}</div>
