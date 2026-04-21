@@ -22,11 +22,11 @@ export default function QuotesTab({ currentUserId, isSalesAdmin }) {
     setLoading(true);
 
     let query = supabase
-      .from('quotes')
-      .select('*')
-      .is('deal_number', null)
-      .eq('archived', false)
-      .order('created_at', { ascending: false });
+  .from('quotes')
+  .select('*')
+  .or('deal_number.is.null,deal_number.eq.')
+  .eq('archived', false)
+  .order('created_at', { ascending: false });
 
     // Salespeople see only their own; sales admins/managers see all
     if (!isSalesAdmin && currentUserId) {
