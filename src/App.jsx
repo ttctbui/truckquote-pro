@@ -6,7 +6,7 @@ import NewQuote from './pages/NewQuote'
 import Stats from './pages/Stats'
 import Settings from './pages/Settings'
 import QuoteDetail from './pages/QuoteDetail'
-import ETADashboard from './pages/ETADashboard';
+import ETADashboard from './pages/ETADashboard'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -17,8 +17,7 @@ function ProtectedRoute({ children }) {
 
 function AppRoutes() {
   const { user, loading } = useAuth()
-  if (loading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center text-grayars-400">Loading...</div>
-
+  if (loading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center text-gray-400">Loading...</div>
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
@@ -27,9 +26,9 @@ function AppRoutes() {
       <Route path="/quotes/:id" element={<ProtectedRoute><QuoteDetail /></ProtectedRoute>} />
       <Route path="/stats" element={<ProtectedRoute><Stats /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-      <Route path="/eta-dashboard" element={<ETADashboard />} />
+      <Route path="/eta-dashboard" element={<ProtectedRoute><ETADashboard /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+    </Routes>
   )
 }
 
