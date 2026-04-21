@@ -28,11 +28,12 @@ export default function DealNumberTab({ currentUserId, isSalesAdmin }) {
 
   async function loadAssigned() {
     let query = supabase
-      .from('quotes')
-      .select('*')
-      .not('deal_number', 'is', null)
-      .eq('archived', false)
-      .order('deal_number_assigned_at', { ascending: false, nullsFirst: false });
+  .from('quotes')
+  .select('*')
+  .not('deal_number', 'is', null)
+  .neq('deal_number', '')
+  .eq('archived', false)
+  .order('deal_number_assigned_at', { ascending: false, nullsFirst: false });
 
     if (!isSalesAdmin && currentUserId) {
       query = query.eq('salesperson_id', currentUserId);
