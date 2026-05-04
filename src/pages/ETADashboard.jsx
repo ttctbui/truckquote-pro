@@ -3,6 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useUserRole } from '../hooks/useUserRole';
+import TTCHeader from '../components/TTCHeader';
+import StatCard from '../components/StatCard';
+import ttcLogo from '../assets/ttc-logo.png';
 
 /**
  * Manager ETA Dashboard
@@ -123,7 +126,13 @@ export default function ETADashboard() {
   }, [salespeople, quotes, moves]);
 
   if (roleLoading || loading) {
-    return <Shell><div className="p-8 text-gray-400">Loading ETA dashboard…</div></Shell>;
+    return (
+      <Shell>
+        <div className="max-w-7xl mx-auto px-4 py-8 text-gray-500 dark:text-dark-muted">
+          Loading ETA dashboard…
+        </div>
+      </Shell>
+    );
   }
 
   return (
@@ -132,35 +141,64 @@ export default function ETADashboard() {
         {/* Title row */}
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-bold text-white">ETA Dashboard</h1>
-            <p className="text-sm text-gray-400">Team-wide pipeline health · Updated just now</p>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-dark-text">ETA Dashboard</h1>
+            <p className="text-sm text-gray-500 dark:text-dark-muted">
+              Team-wide pipeline health · Updated just now
+            </p>
           </div>
           <button
             onClick={loadAll}
-            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded text-sm"
+            className="px-3 py-1.5 bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg text-gray-700 dark:text-dark-text rounded-md text-sm font-medium transition-colors"
           >
             ↻ Refresh
           </button>
         </div>
 
-        {/* Summary cards */}
+        {/* Summary cards — semantic tones from TTC design system */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <Card label="Open Quotes"      value={stats.openQuotes}      sub={`${stats.staleQuotes} stale (>30d)`}     tone={stats.staleQuotes > 0 ? 'warn' : 'ok'} />
-          <Card label="Awaiting Deal #"  value={stats.awaitingDealNum} sub={`${stats.awaitingStale} over 3d`}         tone={stats.awaitingStale > 0 ? 'alert' : 'ok'} />
-          <Card label="Active Deals"     value={stats.activeDeals}     sub="with deal # assigned"                     tone="neutral" />
-          <Card label="Pending Moves"    value={stats.pendingMoves}    sub="awaiting porter assignment"               tone="neutral" />
-          <Card label="Overdue Moves"    value={stats.overdueMoves}    sub="past date_needed"                         tone={stats.overdueMoves > 0 ? 'alert' : 'ok'} />
+          <StatCard
+            label="Open Quotes"
+            value={stats.openQuotes}
+            sub={`${stats.staleQuotes} stale (>30d)`}
+            tone={stats.staleQuotes > 0 ? 'yellow' : 'blue'}
+          />
+          <StatCard
+            label="Awaiting Deal #"
+            value={stats.awaitingDealNum}
+            sub={`${stats.awaitingStale} over 3d`}
+            tone={stats.awaitingStale > 0 ? 'red' : 'orange'}
+          />
+          <StatCard
+            label="Active Deals"
+            value={stats.activeDeals}
+            sub="with deal # assigned"
+            tone="green"
+          />
+          <StatCard
+            label="Pending Moves"
+            value={stats.pendingMoves}
+            sub="awaiting porter assignment"
+            tone="blue"
+          />
+          <StatCard
+            label="Overdue Moves"
+            value={stats.overdueMoves}
+            sub="past date_needed"
+            tone={stats.overdueMoves > 0 ? 'red' : 'green'}
+          />
         </div>
 
         {/* Per-salesperson breakdown */}
         <section>
-          <h2 className="text-xl font-semibold text-white mb-3">By Salesperson</h2>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-dark-text mb-3">
+            By Salesperson
+          </h2>
           {perSalesperson.length === 0 ? (
-            <div className="text-gray-500 italic">No salespeople found.</div>
+            <div className="text-gray-500 dark:text-dark-muted italic">No salespeople found.</div>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-gray-800">
+            <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-ttc-card">
               <table className="w-full text-sm">
-                <thead className="bg-gray-900 text-gray-400">
+                <thead className="bg-gray-50 dark:bg-dark-bg text-xs uppercase tracking-wide text-gray-500 dark:text-dark-muted">
                   <tr className="text-left">
                     <th className="p-3"></th>
                     <th className="p-3">Salesperson</th>
@@ -190,7 +228,7 @@ export default function ETADashboard() {
 
         {/* Detail tabs */}
         <section>
-          <div className="flex gap-1 border-b border-gray-800 mb-4">
+          <div className="flex gap-1 border-b border-gray-200 dark:border-dark-border mb-4">
             <TabBtn active={tab === 'deals'} onClick={() => setTab('deals')}>Deal ETA</TabBtn>
             <TabBtn active={tab === 'moves'} onClick={() => setTab('moves')}>Move Request ETA</TabBtn>
           </div>
@@ -214,50 +252,21 @@ function Shell({ children }) {
   const { signOut } = useAuth();
   const { profile, role } = useUserRole();
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      <header className="border-b border-gray-800 bg-gray-900">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <span className="text-orange-500 font-black text-xl tracking-wider">TTC</span>
-            <span className="text-white font-semibold">TruckQuote Pro</span>
-          </div>
-          <div className="flex items-center gap-4 text-sm">
-            <span className="text-gray-400">
-              {profile?.full_name}
-              <span className="ml-2 px-2 py-0.5 bg-gray-800 rounded text-xs capitalize">
-                {role?.replace('_',' ')}
-              </span>
-            </span>
-            <Link to="/" className="text-gray-300 hover:text-white">Dashboard</Link>
-            <Link to="/stats" className="text-gray-300 hover:text-white">Stats</Link>
-            <Link to="/settings" className="text-gray-300 hover:text-white">Settings</Link>
-            <button onClick={signOut} className="text-gray-400 hover:text-white">Sign out</button>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-gray-50 dark:bg-dark-bg text-gray-900 dark:text-dark-text">
+      <TTCHeader
+        logoSrc={ttcLogo}
+        appName="TruckQuote Pro"
+        userName={profile?.full_name}
+        userRole={role}
+        rightNav={[
+          { label: 'Dashboard',     href: '/' },
+          { label: 'ETA Dashboard', href: '/eta-dashboard' },
+          { label: 'Stats',         href: '/stats' },
+          { label: 'Settings',      href: '/settings' },
+        ]}
+        onSignOut={signOut}
+      />
       {children}
-    </div>
-  );
-}
-
-function Card({ label, value, sub, tone = 'neutral' }) {
-  const tones = {
-    ok:      'border-gray-800',
-    neutral: 'border-gray-800',
-    warn:    'border-yellow-600/40',
-    alert:   'border-red-600/50',
-  };
-  const subTones = {
-    ok:      'text-gray-500',
-    neutral: 'text-gray-500',
-    warn:    'text-yellow-400',
-    alert:   'text-red-400',
-  };
-  return (
-    <div className={`bg-gray-900 rounded-lg p-4 border ${tones[tone]}`}>
-      <div className="text-xs uppercase tracking-wide text-gray-400">{label}</div>
-      <div className="text-3xl font-bold text-white mt-1">{value}</div>
-      <div className={`text-xs mt-1 ${subTones[tone]}`}>{sub}</div>
     </div>
   );
 }
@@ -265,25 +274,28 @@ function Card({ label, value, sub, tone = 'neutral' }) {
 function RowWithDetail({ sp, isOpen, onToggle }) {
   return (
     <>
-      <tr className="border-t border-gray-800 hover:bg-gray-900/70 cursor-pointer" onClick={onToggle}>
-        <td className="p-3 text-gray-500 w-8">{isOpen ? '▼' : '▶'}</td>
-        <td className="p-3 text-white font-medium">{sp.name}</td>
-        <td className="p-3 text-right">{sp.openQuotes}</td>
-        <td className="p-3 text-right">{sp.awaiting}</td>
-        <td className="p-3 text-right">{sp.activeDeals}</td>
-        <td className="p-3 text-right text-gray-300">
+      <tr
+        className="border-t border-gray-200 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg cursor-pointer"
+        onClick={onToggle}
+      >
+        <td className="p-3 text-gray-400 dark:text-dark-muted w-8">{isOpen ? '▼' : '▶'}</td>
+        <td className="p-3 font-medium text-gray-900 dark:text-dark-text">{sp.name}</td>
+        <td className="p-3 text-right text-gray-700 dark:text-dark-text">{sp.openQuotes}</td>
+        <td className="p-3 text-right text-gray-700 dark:text-dark-text">{sp.awaiting}</td>
+        <td className="p-3 text-right text-gray-700 dark:text-dark-text">{sp.activeDeals}</td>
+        <td className="p-3 text-right text-gray-600 dark:text-dark-muted font-numeric">
           {sp.avgDaysToDealNum == null ? '—' : `${sp.avgDaysToDealNum.toFixed(1)}d`}
         </td>
         <td className="p-3 text-right">
-          <AgingBadge count={sp.staleQuotes} zero="ok" />
+          <AgingBadge count={sp.staleQuotes} level="warn" />
         </td>
-        <td className="p-3 text-right">{sp.pendingMoves}</td>
+        <td className="p-3 text-right text-gray-700 dark:text-dark-text">{sp.pendingMoves}</td>
         <td className="p-3 text-right">
-          <AgingBadge count={sp.overdueMoves} zero="ok" level="alert" />
+          <AgingBadge count={sp.overdueMoves} level="alert" />
         </td>
       </tr>
       {isOpen && (
-        <tr className="bg-gray-900/40">
+        <tr className="bg-gray-50 dark:bg-dark-bg/50">
           <td></td>
           <td colSpan={8} className="p-3">
             <SalespersonDetail sp={sp} />
@@ -296,16 +308,20 @@ function RowWithDetail({ sp, isOpen, onToggle }) {
 
 function SalespersonDetail({ sp }) {
   const now = Date.now();
+  const openQuotes = sp.myQuotes.filter(q => !q.deal_number);
+
   return (
     <div className="space-y-4">
       {/* Active quotes */}
       <div>
-        <div className="text-sm font-semibold text-gray-300 mb-2">Open Quotes ({sp.myQuotes.filter(q => !q.deal_number).length})</div>
-        {sp.myQuotes.filter(q => !q.deal_number).length === 0 ? (
-          <div className="text-xs text-gray-500 italic">None open.</div>
+        <div className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-2">
+          Open Quotes ({openQuotes.length})
+        </div>
+        {openQuotes.length === 0 ? (
+          <div className="text-xs text-gray-500 dark:text-dark-muted italic">None open.</div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="text-gray-500 text-xs">
+            <thead className="text-gray-500 dark:text-dark-muted text-xs uppercase tracking-wide">
               <tr className="text-left">
                 <th className="py-1">Quote #</th>
                 <th className="py-1">Customer</th>
@@ -314,18 +330,23 @@ function SalespersonDetail({ sp }) {
               </tr>
             </thead>
             <tbody>
-              {sp.myQuotes.filter(q => !q.deal_number).map(q => {
+              {openQuotes.map(q => {
                 const age = daysSince(q.created_at, now);
                 return (
-                  <tr key={q.id} className="border-t border-gray-800">
+                  <tr key={q.id} className="border-t border-gray-200 dark:border-dark-border">
                     <td className="py-1">
-                      <Link to={`/quotes/${q.id}`} className="text-blue-400 hover:underline">
+                      <Link
+                        to={`/quotes/${q.id}`}
+                        className="text-ttc-blue hover:text-ttc-blue-dark dark:text-ttc-blue dark:hover:text-blue-300 font-numeric hover:underline"
+                      >
                         {q.quote_number}
                       </Link>
                     </td>
-                    <td className="py-1 text-gray-200">{q.customer_name}</td>
-                    <td className="py-1 text-gray-400 text-xs">{q.status}</td>
-                    <td className="py-1 text-right"><AgeLabel days={age} thresholds={[30,60]} /></td>
+                    <td className="py-1 text-gray-800 dark:text-dark-text">{q.customer_name}</td>
+                    <td className="py-1 text-gray-500 dark:text-dark-muted text-xs">{q.status}</td>
+                    <td className="py-1 text-right">
+                      <AgeLabel days={age} thresholds={[30, 60]} />
+                    </td>
                   </tr>
                 );
               })}
@@ -336,12 +357,14 @@ function SalespersonDetail({ sp }) {
 
       {/* Pending / active moves */}
       <div>
-        <div className="text-sm font-semibold text-gray-300 mb-2">Active Moves ({sp.myMoves.length})</div>
+        <div className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-2">
+          Active Moves ({sp.myMoves.length})
+        </div>
         {sp.myMoves.length === 0 ? (
-          <div className="text-xs text-gray-500 italic">None active.</div>
+          <div className="text-xs text-gray-500 dark:text-dark-muted italic">None active.</div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="text-gray-500 text-xs">
+            <thead className="text-gray-500 dark:text-dark-muted text-xs uppercase tracking-wide">
               <tr className="text-left">
                 <th className="py-1">From → To</th>
                 <th className="py-1">Type</th>
@@ -351,11 +374,15 @@ function SalespersonDetail({ sp }) {
             </thead>
             <tbody>
               {sp.myMoves.map(m => (
-                <tr key={m.id} className="border-t border-gray-800">
-                  <td className="py-1 text-gray-200 text-xs">{m.from_location} → {m.to_location}</td>
-                  <td className="py-1 text-gray-400 text-xs">{m.move_type}</td>
-                  <td className="py-1 text-gray-400 text-xs">{m.status}</td>
-                  <td className="py-1 text-right"><DateNeededLabel date={m.date_needed} /></td>
+                <tr key={m.id} className="border-t border-gray-200 dark:border-dark-border">
+                  <td className="py-1 text-gray-800 dark:text-dark-text text-xs">
+                    {m.from_location} → {m.to_location}
+                  </td>
+                  <td className="py-1 text-gray-500 dark:text-dark-muted text-xs">{m.move_type}</td>
+                  <td className="py-1 text-gray-500 dark:text-dark-muted text-xs">{m.status}</td>
+                  <td className="py-1 text-right">
+                    <DateNeededLabel date={m.date_needed} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -378,12 +405,14 @@ function DealETATable({ quotes, salespeople }) {
     }))
     .sort((a,b) => b.age - a.age);
 
-  if (rows.length === 0) return <div className="text-gray-500 italic">No active deals.</div>;
+  if (rows.length === 0) {
+    return <div className="text-gray-500 dark:text-dark-muted italic">No active deals.</div>;
+  }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-gray-800">
+    <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-ttc-card">
       <table className="w-full text-sm">
-        <thead className="bg-gray-900 text-gray-400 text-xs">
+        <thead className="bg-gray-50 dark:bg-dark-bg text-xs uppercase tracking-wide text-gray-500 dark:text-dark-muted">
           <tr className="text-left">
             <th className="p-3">Quote #</th>
             <th className="p-3">Salesperson</th>
@@ -395,15 +424,20 @@ function DealETATable({ quotes, salespeople }) {
         </thead>
         <tbody>
           {rows.map(q => (
-            <tr key={q.id} className="border-t border-gray-800 hover:bg-gray-900/70">
+            <tr key={q.id} className="border-t border-gray-200 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg">
               <td className="p-3">
-                <Link to={`/quotes/${q.id}`} className="text-blue-400 hover:underline">{q.quote_number}</Link>
+                <Link
+                  to={`/quotes/${q.id}`}
+                  className="text-ttc-blue hover:text-ttc-blue-dark dark:text-ttc-blue dark:hover:text-blue-300 font-numeric hover:underline"
+                >
+                  {q.quote_number}
+                </Link>
               </td>
-              <td className="p-3 text-gray-200">{q.sp}</td>
-              <td className="p-3 text-gray-200">{q.customer_name}</td>
-              <td className="p-3 text-gray-300 font-mono">{q.deal_number || '—'}</td>
-              <td className="p-3 text-gray-400">{q.status}</td>
-              <td className="p-3 text-right"><AgeLabel days={q.age} thresholds={[30,60]} /></td>
+              <td className="p-3 text-gray-800 dark:text-dark-text">{q.sp}</td>
+              <td className="p-3 text-gray-800 dark:text-dark-text">{q.customer_name}</td>
+              <td className="p-3 text-gray-700 dark:text-dark-muted font-numeric">{q.deal_number || '—'}</td>
+              <td className="p-3 text-gray-500 dark:text-dark-muted">{q.status}</td>
+              <td className="p-3 text-right"><AgeLabel days={q.age} thresholds={[30, 60]} /></td>
             </tr>
           ))}
         </tbody>
@@ -426,12 +460,14 @@ function MoveETATable({ moves, salespeople }) {
       return (new Date(a.date_needed ?? 0)) - (new Date(b.date_needed ?? 0));
     });
 
-  if (rows.length === 0) return <div className="text-gray-500 italic">No active moves.</div>;
+  if (rows.length === 0) {
+    return <div className="text-gray-500 dark:text-dark-muted italic">No active moves.</div>;
+  }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-gray-800">
+    <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-ttc-card">
       <table className="w-full text-sm">
-        <thead className="bg-gray-900 text-gray-400 text-xs">
+        <thead className="bg-gray-50 dark:bg-dark-bg text-xs uppercase tracking-wide text-gray-500 dark:text-dark-muted">
           <tr className="text-left">
             <th className="p-3">From → To</th>
             <th className="p-3">Requester</th>
@@ -443,14 +479,25 @@ function MoveETATable({ moves, salespeople }) {
         </thead>
         <tbody>
           {rows.map(m => (
-            <tr key={m.id} className={`border-t border-gray-800 hover:bg-gray-900/70 ${m.is_urgent ? 'bg-red-950/30' : ''}`}>
-              <td className="p-3 text-gray-200">{m.from_location} → {m.to_location}</td>
-              <td className="p-3 text-gray-300">{m.sp}</td>
-              <td className="p-3 text-gray-400">{m.move_type}</td>
-              <td className="p-3 text-gray-400">{m.region}</td>
+            <tr
+              key={m.id}
+              className={`border-t border-gray-200 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg ${
+                m.is_urgent ? 'bg-red-50 dark:bg-red-950/30' : ''
+              }`}
+            >
+              <td className="p-3 text-gray-800 dark:text-dark-text">{m.from_location} → {m.to_location}</td>
+              <td className="p-3 text-gray-700 dark:text-dark-text">{m.sp}</td>
+              <td className="p-3 text-gray-500 dark:text-dark-muted">{m.move_type}</td>
+              <td className="p-3 text-gray-500 dark:text-dark-muted">{m.region}</td>
               <td className="p-3">
-                <span className="px-2 py-0.5 bg-gray-800 rounded text-xs">{m.status}</span>
-                {m.is_urgent && <span className="ml-2 px-1.5 py-0.5 bg-red-600 text-white rounded text-[10px] font-bold">URGENT</span>}
+                <span className="px-2 py-0.5 bg-gray-100 dark:bg-dark-bg text-gray-700 dark:text-dark-text rounded-full text-xs font-medium">
+                  {m.status}
+                </span>
+                {m.is_urgent && (
+                  <span className="ml-2 px-1.5 py-0.5 bg-stat-red text-white rounded text-[10px] font-bold">
+                    URGENT
+                  </span>
+                )}
               </td>
               <td className="p-3 text-right"><DateNeededLabel date={m.date_needed} /></td>
             </tr>
@@ -466,7 +513,9 @@ function TabBtn({ active, onClick, children }) {
     <button
       onClick={onClick}
       className={`px-4 py-2 font-semibold border-b-2 transition-colors ${
-        active ? 'text-orange-400 border-orange-500' : 'text-gray-400 border-transparent hover:text-white'
+        active
+          ? 'text-ttc-blue border-ttc-blue dark:text-ttc-blue dark:border-ttc-blue'
+          : 'text-gray-500 dark:text-dark-muted border-transparent hover:text-gray-900 dark:hover:text-dark-text'
       }`}
     >
       {children}
@@ -474,34 +523,36 @@ function TabBtn({ active, onClick, children }) {
   );
 }
 
-function AgingBadge({ count, level = 'warn', zero = 'dim' }) {
+function AgingBadge({ count, level = 'warn' }) {
   if (count === 0) {
-    return <span className="text-gray-600">0</span>;
+    return <span className="text-gray-400 dark:text-dark-muted">0</span>;
   }
-  const cls = level === 'alert' ? 'text-red-400 font-semibold' : 'text-yellow-400 font-semibold';
+  const cls = level === 'alert'
+    ? 'text-stat-red font-semibold'
+    : 'text-stat-yellow font-semibold';
   return <span className={cls}>{count}</span>;
 }
 
 function AgeLabel({ days, thresholds = [30, 60] }) {
   const [warn, alert] = thresholds;
-  let cls = 'text-green-400';
-  if (days >= alert) cls = 'text-red-400 font-semibold';
-  else if (days >= warn) cls = 'text-yellow-400';
-  return <span className={cls}>{Math.round(days)}d</span>;
+  let cls = 'text-stat-green';
+  if (days >= alert) cls = 'text-stat-red font-semibold';
+  else if (days >= warn) cls = 'text-stat-yellow';
+  return <span className={`${cls} font-numeric`}>{Math.round(days)}d</span>;
 }
 
 function DateNeededLabel({ date }) {
-  if (!date) return <span className="text-gray-500">—</span>;
+  if (!date) return <span className="text-gray-400 dark:text-dark-muted">—</span>;
   const d = new Date(date);
   const now = new Date();
   const dayMs = 24 * 60 * 60 * 1000;
   const diffDays = Math.round((d - now) / dayMs);
 
-  let cls = 'text-green-400';
+  let cls = 'text-stat-green';
   let label = d.toLocaleDateString();
 
-  if (diffDays < 0)      { cls = 'text-red-400 font-semibold'; label += ` (${Math.abs(diffDays)}d late)`; }
-  else if (diffDays <= 1){ cls = 'text-yellow-400'; label += diffDays === 0 ? ' (today)' : ' (tomorrow)'; }
+  if (diffDays < 0)       { cls = 'text-stat-red font-semibold'; label += ` (${Math.abs(diffDays)}d late)`; }
+  else if (diffDays <= 1) { cls = 'text-stat-yellow'; label += diffDays === 0 ? ' (today)' : ' (tomorrow)'; }
 
   return <span className={cls}>{label}</span>;
 }
