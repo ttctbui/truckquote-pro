@@ -5,8 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useUserRole } from '../hooks/useUserRole';
 import TTCHeader from '../components/TTCHeader';
 import StatCard from '../components/StatCard';
-import ttcLogo from '../assets/ttc-logo.png';
-
+import ttcLogo from '../assets/TTC_Logo_022020-2.png';
 /**
  * Manager ETA Dashboard
  * - Team-wide summary cards
