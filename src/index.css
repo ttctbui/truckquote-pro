@@ -2,12 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap');
+/* ──────────────────────────────────────────────────────────
+   TTC base styles — light theme is the default.
+   Dark mode is opt-in via <html class="dark"> (toggled by ThemeToggle).
+   ────────────────────────────────────────────────────────── */
 
-* {
-  box-sizing: border-box;
+html, body, #root {
+  height: 100%;
 }
 
 body {
-  background-color: #0D1B2A;
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Light defaults */
+  background-color: #F9FAFB;   /* gray-50 */
+  color: #111827;              /* gray-900 */
+}
+
+/* Dark overrides */
+html.dark body {
+  background-color: #0E0F11;   /* dark.bg */
+  color: #E4E4E7;              /* dark.text */
+}
+
+/* Utility: monospace numerals for deal #s, VINs, stock #s */
+.font-numeric {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Smooth theme transitions on common surfaces */
+body,
+header,
+section,
+.themed-surface {
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
 }
