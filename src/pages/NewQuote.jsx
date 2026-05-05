@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
+import TTCHeader from '../components/TTCHeader'
+import ttcLogo from '../assets/ttc-logo.png'
 
 function calcPayment(price, down, tradeValue, tradePayoff, rate, months) {
   const amount = price - down - tradeValue + tradePayoff
@@ -23,7 +25,7 @@ const INCENTIVE_OPTIONS = [
 ]
 
 export default function NewQuote() {
-  const { profile } = useAuth()
+  const { profile, signOut } = useAuth()
   const navigate = useNavigate()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -203,53 +205,66 @@ export default function NewQuote() {
     alert('Doc Request submitted! Joe De La Rosa has been notified.')
   }
 
-  const inputClass = "w-full bg-gray-800 text-white rounded-lg px-3 py-2 border border-gray-700 focus:outline-none focus:border-blue-500 text-sm"
-  const labelClass = "block text-gray-400 text-xs mb-1"
-  const sectionClass = "bg-gray-900 border border-gray-800 rounded-xl p-5 mb-4"
-
-  function YesNo({ field, value, onChange }) {
-    return (
-      <div className="flex gap-2">
-        {['Yes', 'No'].map(v => (
-          <button key={v} onClick={() => onChange(field, v)}
-            className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${value === v ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
-            {v}
-          </button>
-        ))}
-      </div>
-    )
-  }
+  const inputClass = "w-full bg-white dark:bg-dark-bg text-gray-900 dark:text-dark-text rounded-lg px-3 py-2 border border-gray-300 dark:border-dark-border focus:outline-none focus:border-ttc-blue focus:ring-2 focus:ring-ttc-blue/20 text-sm transition-all"
+  const labelClass = "block text-gray-600 dark:text-dark-muted text-xs mb-1 font-medium"
+  const sectionClass = "bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-xl p-5 mb-4 shadow-ttc-card"
+  const toggleSelected = "bg-ttc-blue border-ttc-blue text-white"
+  const toggleUnselected = "bg-white dark:bg-dark-bg border-gray-300 dark:border-dark-border text-gray-700 dark:text-dark-text hover:border-gray-400 dark:hover:border-dark-muted"
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      <div className="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/')} className="text-gray-400 hover:text-white text-sm">← Back</button>
-          <span className="text-gray-600">|</span>
-          <span className="text-white font-semibold">New Quote</span>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={openDocRequest}
-            className="bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
-            Doc Request
-          </button>
-          <button onClick={() => handleSave(false)} disabled={saving}
-            className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
-            Save Draft
-          </button>
-          <button onClick={() => handleSave(true)} disabled={saving}
-            className="bg-red-700 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
-            Submit for Approval
-          </button>
+    <div className="min-h-screen bg-gray-50 dark:bg-dark-bg text-gray-900 dark:text-dark-text">
+      <TTCHeader
+        logoSrc={ttcLogo}
+        appName="TruckQuote Pro"
+        userName={profile?.full_name ?? profile?.email}
+        userRole={profile?.role}
+        rightNav={[{ label: 'Dashboard', href: '/' }]}
+        onSignOut={signOut}
+      />
+
+      {/* Action toolbar */}
+      <div className="bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border px-6 py-3">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigate('/')} className="text-gray-500 dark:text-dark-muted hover:text-gray-900 dark:hover:text-dark-text text-sm">← Back</button>
+            <span className="text-gray-300 dark:text-dark-border">|</span>
+            <span className="text-gray-900 dark:text-dark-text font-semibold">New Quote</span>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={openDocRequest}
+              className="bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg text-gray-700 dark:text-dark-text px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+            >
+              Doc Request
+            </button>
+            <button
+              onClick={() => handleSave(false)}
+              disabled={saving}
+              className="bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg text-gray-700 dark:text-dark-text px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
+            >
+              Save Draft
+            </button>
+            <button
+              onClick={() => handleSave(true)}
+              disabled={saving}
+              className="bg-ttc-blue hover:bg-ttc-blue-dark text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
+            >
+              Submit for Approval
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="max-w-4xl mx-auto px-6 py-8">
-        {error && <div className="mb-4 text-red-400 text-sm bg-red-950 border border-red-800 rounded-lg px-4 py-2">{error}</div>}
+        {error && (
+          <div className="mb-4 text-stat-red text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg px-4 py-2">
+            {error}
+          </div>
+        )}
 
         {/* Customer Info */}
         <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wider">Customer Information</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Customer Information</h2>
           <div className="grid grid-cols-2 gap-4">
             <div><label className={labelClass}>Customer Name *</label><input className={inputClass} value={form.customer_name} onChange={e => set('customer_name', e.target.value)} placeholder="John Smith" /></div>
             <div><label className={labelClass}>Company Name</label><input className={inputClass} value={form.company_name} onChange={e => set('company_name', e.target.value)} placeholder="ABC Landscaping" /></div>
@@ -260,14 +275,14 @@ export default function NewQuote() {
 
         {/* Vehicle Info */}
         <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wider">Vehicle Information</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Vehicle Information</h2>
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className={labelClass}>Vehicle Type</label>
               <div className="flex gap-2">
                 {['New', 'Pre-Owned'].map(t => (
                   <button key={t} onClick={() => set('vehicle_type', t)}
-                    className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${form.vehicle_type === t ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
+                    className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${form.vehicle_type === t ? toggleSelected : toggleUnselected}`}>
                     {t}
                   </button>
                 ))}
@@ -313,14 +328,14 @@ export default function NewQuote() {
 
         {/* Deal Type */}
         <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wider">Deal Information</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Deal Information</h2>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>Deal Type</label>
               <div className="flex gap-2">
                 {['Finance', 'Cash'].map(t => (
                   <button key={t} onClick={() => set('deal_type', t)}
-                    className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${form.deal_type === t ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
+                    className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${form.deal_type === t ? toggleSelected : toggleUnselected}`}>
                     {t}
                   </button>
                 ))}
@@ -332,18 +347,24 @@ export default function NewQuote() {
 
         {/* GBB Pricing */}
         <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wider">Good · Better · Best Pricing</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Good · Better · Best Pricing</h2>
           <div className="grid grid-cols-3 gap-4">
             {['good', 'better', 'best'].map(tier => (
               <div key={tier} onClick={() => set('selected_tier', tier)}
-                className={`rounded-xl border-2 p-4 cursor-pointer transition-all ${form.selected_tier === tier ? 'border-red-600 bg-red-950' : 'border-gray-700 bg-gray-800 hover:border-gray-600'}`}>
-                <p className="text-xs font-semibold uppercase tracking-wider mb-2 text-gray-400">{tier}</p>
+                className={`rounded-xl border-2 p-4 cursor-pointer transition-all ${
+                  form.selected_tier === tier
+                    ? 'border-ttc-blue bg-ttc-blue-light dark:bg-ttc-blue/10'
+                    : 'border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-bg hover:border-gray-300 dark:hover:border-dark-muted'
+                }`}>
+                <p className="text-xs font-semibold uppercase tracking-wider mb-2 text-gray-500 dark:text-dark-muted">{tier}</p>
                 <div className="relative">
-                  <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
-                  <input className="w-full bg-gray-900 text-white rounded-lg pl-7 pr-3 py-2 border border-gray-700 focus:outline-none focus:border-blue-500 text-sm"
-                    value={form[`price_${tier}`]} onChange={e => set(`price_${tier}`, e.target.value)} placeholder="0" onClick={e => e.stopPropagation()} />
+                  <span className="absolute left-3 top-2 text-gray-400 dark:text-dark-muted text-sm">$</span>
+                  <input
+                    className="w-full bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text rounded-lg pl-7 pr-3 py-2 border border-gray-300 dark:border-dark-border focus:outline-none focus:border-ttc-blue focus:ring-2 focus:ring-ttc-blue/20 text-sm transition-all font-numeric"
+                    value={form[`price_${tier}`]} onChange={e => set(`price_${tier}`, e.target.value)} placeholder="0" onClick={e => e.stopPropagation()}
+                  />
                 </div>
-                {form.selected_tier === tier && <p className="text-xs text-red-400 mt-2">✓ Selected</p>}
+                {form.selected_tier === tier && <p className="text-xs text-ttc-blue mt-2 font-semibold">✓ Selected</p>}
               </div>
             ))}
           </div>
@@ -351,7 +372,7 @@ export default function NewQuote() {
 
         {/* Finance */}
         <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wider">Financing</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Financing</h2>
           <div className="grid grid-cols-3 gap-4">
             <div><label className={labelClass}>Down Payment</label><input className={inputClass} value={form.down_payment} onChange={e => set('down_payment', e.target.value)} placeholder="0" /></div>
             <div><label className={labelClass}>Trade-In Value</label><input className={inputClass} value={form.trade_value} onChange={e => set('trade_value', e.target.value)} placeholder="0" /></div>
@@ -363,17 +384,17 @@ export default function NewQuote() {
               </select>
             </div>
             <div><label className={labelClass}>Interest Rate %</label><input className={inputClass} value={form.interest_rate} onChange={e => set('interest_rate', e.target.value)} placeholder="6.99" /></div>
-            <div className="bg-gray-800 rounded-xl p-3 border border-gray-700">
-              <p className="text-gray-400 text-xs mb-1">Est. Monthly Payment</p>
-              <p className="text-2xl font-bold text-white">${payment.toFixed(2)}</p>
-              <p className="text-gray-500 text-xs">{form.selected_tier} price · {form.term_months} mo</p>
+            <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
+              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Est. Monthly Payment</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-dark-text font-numeric">${payment.toFixed(2)}</p>
+              <p className="text-gray-500 dark:text-dark-muted text-xs">{form.selected_tier} price · {form.term_months} mo</p>
             </div>
           </div>
         </div>
 
         {/* RECAP */}
         <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wider">RECAP — Deal Summary</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">RECAP — Deal Summary</h2>
           <div className="grid grid-cols-3 gap-4 mb-4">
             <div><label className={labelClass}>Cost of Vehicle</label><input className={inputClass} value={form.cost_of_vehicle} onChange={e => set('cost_of_vehicle', e.target.value)} placeholder="0" /></div>
             <div><label className={labelClass}>Pack Amount</label><input className={inputClass} value={form.pack_amount} onChange={e => set('pack_amount', e.target.value)} placeholder="500" /></div>
@@ -384,24 +405,28 @@ export default function NewQuote() {
             <div className="flex flex-wrap gap-2 mt-1">
               {INCENTIVE_OPTIONS.map(inc => (
                 <button key={inc} onClick={() => toggleIncentive(inc)}
-                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${form.selected_incentives.includes(inc) ? 'bg-blue-700 border-blue-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                    form.selected_incentives.includes(inc)
+                      ? 'bg-ttc-blue border-ttc-blue text-white'
+                      : 'bg-white dark:bg-dark-bg border-gray-300 dark:border-dark-border text-gray-700 dark:text-dark-text hover:border-gray-400 dark:hover:border-dark-muted'
+                  }`}>
                   {inc}
                 </button>
               ))}
             </div>
           </div>
           <div className="grid grid-cols-3 gap-4 mt-4">
-            <div className="bg-gray-800 rounded-xl p-3 border border-gray-700">
-              <p className="text-gray-400 text-xs mb-1">Sale Price</p>
-              <p className="text-xl font-bold text-white">${selectedPrice.toLocaleString()}</p>
+            <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
+              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Sale Price</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-dark-text font-numeric">${selectedPrice.toLocaleString()}</p>
             </div>
-            <div className="bg-gray-800 rounded-xl p-3 border border-gray-700">
-              <p className="text-gray-400 text-xs mb-1">Gross Profit</p>
-              <p className={`text-xl font-bold ${grossProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>${grossProfit.toLocaleString()}</p>
+            <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
+              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Gross Profit</p>
+              <p className={`text-xl font-bold font-numeric ${grossProfit >= 0 ? 'text-stat-green' : 'text-stat-red'}`}>${grossProfit.toLocaleString()}</p>
             </div>
-            <div className="bg-gray-800 rounded-xl p-3 border border-gray-700">
-              <p className="text-gray-400 text-xs mb-1">Commission (25%)</p>
-              <p className="text-xl font-bold text-yellow-400">${commission.toLocaleString()}</p>
+            <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
+              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Commission (25%)</p>
+              <p className="text-xl font-bold text-stat-yellow font-numeric">${commission.toLocaleString()}</p>
             </div>
           </div>
           <div className="mt-4">
@@ -409,7 +434,7 @@ export default function NewQuote() {
             <div className="flex gap-2 w-48">
               {['Yes', 'No'].map(v => (
                 <button key={v} onClick={() => set('docs_submitted', v)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${form.docs_submitted === v ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${form.docs_submitted === v ? toggleSelected : toggleUnselected}`}>
                   {v}
                 </button>
               ))}
@@ -422,13 +447,13 @@ export default function NewQuote() {
         </div>
 
         <div className="flex justify-end gap-3 mt-6">
-          <button onClick={() => navigate('/')} className="text-gray-400 hover:text-white px-4 py-2 text-sm transition-colors">Cancel</button>
+          <button onClick={() => navigate('/')} className="text-gray-500 dark:text-dark-muted hover:text-gray-900 dark:hover:text-dark-text px-4 py-2 text-sm transition-colors">Cancel</button>
           <button onClick={() => handleSave(false)} disabled={saving}
-            className="bg-gray-700 hover:bg-gray-600 text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
+            className="bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg text-gray-700 dark:text-dark-text px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
             Save Draft
           </button>
           <button onClick={() => handleSave(true)} disabled={saving}
-            className="bg-red-700 hover:bg-red-600 text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
+            className="bg-ttc-blue hover:bg-ttc-blue-dark text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
             Submit for Approval
           </button>
         </div>
@@ -436,61 +461,34 @@ export default function NewQuote() {
 
       {/* Doc Request Modal */}
       {showDocRequest && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:50,overflowY:'auto',padding:'2rem 1rem'}}>
-          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-full max-w-lg">
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-xl p-6 w-full max-w-lg shadow-2xl my-8">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-white font-semibold text-lg">Doc Request</h2>
-              <button onClick={() => setShowDocRequest(false)} className="text-gray-400 hover:text-white text-xl">✕</button>
+              <h2 className="text-gray-900 dark:text-dark-text font-semibold text-lg">Doc Request</h2>
+              <button onClick={() => setShowDocRequest(false)} className="text-gray-400 hover:text-gray-600 dark:text-dark-muted dark:hover:text-dark-text text-xl">✕</button>
             </div>
 
             <div className="space-y-4">
               <div><label className={labelClass}>Salesperson</label><input className={inputClass} value={docRequest.salesperson} onChange={e => setDoc('salesperson', e.target.value)} /></div>
               <div><label className={labelClass}>Salesperson #2 (split deal)</label><input className={inputClass} value={docRequest.salesperson2} onChange={e => setDoc('salesperson2', e.target.value)} placeholder="Optional" /></div>
               <div><label className={labelClass}>Customer</label><input className={inputClass} value={docRequest.customer} onChange={e => setDoc('customer', e.target.value)} /></div>
-              <div>
-                <label className={labelClass}>Deal Type</label>
-                <div className="flex gap-2">
-                  {['Finance', 'Cash'].map(t => (
-                    <button key={t} onClick={() => setDoc('deal_type', t)}
-                      className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${docRequest.deal_type === t ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              </div>
+
+              <YesNoToggle label="Deal Type" options={['Finance', 'Cash']} value={docRequest.deal_type} onChange={v => setDoc('deal_type', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
+
               <div>
                 <label className={labelClass}>Payment Type</label>
                 <select className={inputClass} value={docRequest.payment_type} onChange={e => setDoc('payment_type', e.target.value)}>
                   {['Wire', 'Check', 'ACH'].map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
-              <div>
-                <label className={labelClass}>Is this a Fleet deal?</label>
-                <div className="flex gap-2">
-                  {['Yes', 'No'].map(v => (
-                    <button key={v} onClick={() => setDoc('is_fleet', v)}
-                      className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${docRequest.is_fleet === v ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
-                      {v}
-                    </button>
-                  ))}
-                </div>
-              </div>
+
+              <YesNoToggle label="Is this a Fleet deal?" options={['Yes', 'No']} value={docRequest.is_fleet} onChange={v => setDoc('is_fleet', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
 
               {docRequest.is_fleet === 'Yes' && (
                 <div><label className={labelClass}>FIN Code</label><input className={inputClass} value={docRequest.fin_code} onChange={e => setDoc('fin_code', e.target.value)} placeholder="Enter FIN code" /></div>
               )}
 
-              <div>
-                <label className={labelClass}>Is there an HVIP incentive with this vehicle?</label>
-                <div className="flex gap-2">
-                  {['Yes', 'No'].map(v => (
-                    <button key={v} onClick={() => setDoc('hvip_incentive', v)}
-                      className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${docRequest.hvip_incentive === v ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
-                      {v}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <YesNoToggle label="Is there an HVIP incentive with this vehicle?" options={['Yes', 'No']} value={docRequest.hvip_incentive} onChange={v => setDoc('hvip_incentive', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
 
               <div><label className={labelClass}>VIN #</label><input className={inputClass} value={docRequest.vin} onChange={e => setDoc('vin', e.target.value)} /></div>
               <div><label className={labelClass}>Stock #</label><input className={inputClass} value={docRequest.stock_number} onChange={e => setDoc('stock_number', e.target.value)} /></div>
@@ -499,85 +497,50 @@ export default function NewQuote() {
               <div><label className={labelClass}>Time of Signing</label><input type="time" className={inputClass} value={docRequest.time_of_signing} onChange={e => setDoc('time_of_signing', e.target.value)} /></div>
               <div><label className={labelClass}>Truck Mileage</label><input className={inputClass} value={docRequest.truck_mileage} onChange={e => setDoc('truck_mileage', e.target.value)} placeholder="0" /></div>
 
-              <div>
-                <label className={labelClass}>Final Workbook &amp; Docs from deal # request?</label>
-                <div className="flex gap-2">
-                  {['Yes', 'No'].map(v => (
-                    <button key={v} onClick={() => setDoc('final_workbook_requested', v)}
-                      className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${docRequest.final_workbook_requested === v ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
-                      {v}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <YesNoToggle label="Final Workbook & Docs from deal # request?" options={['Yes', 'No']} value={docRequest.final_workbook_requested} onChange={v => setDoc('final_workbook_requested', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
+              <YesNoToggle label="Copy of Driver's License?" options={['Yes', 'No']} value={docRequest.copy_of_license} onChange={v => setDoc('copy_of_license', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
+              <YesNoToggle label="Select One" options={['GVWR', 'CGWR']} value={docRequest.weight_class} onChange={v => setDoc('weight_class', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
 
-              <div>
-                <label className={labelClass}>Copy of Driver's License?</label>
-                <div className="flex gap-2">
-                  {['Yes', 'No'].map(v => (
-                    <button key={v} onClick={() => setDoc('copy_of_license', v)}
-                      className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${docRequest.copy_of_license === v ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
-                      {v}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className={labelClass}>Select One</label>
-                <div className="flex gap-2">
-                  {['GVWR', 'CGWR'].map(v => (
-                    <button key={v} onClick={() => setDoc('weight_class', v)}
-                      className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${docRequest.weight_class === v ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
-                      {v}
-                    </button>
-                  ))}
-                </div>
-              </div>
               <div><label className={labelClass}>GVWR</label><input className={inputClass} value={docRequest.gvwr} onChange={e => setDoc('gvwr', e.target.value)} placeholder="e.g. 26,000 lbs" /></div>
 
-              <div>
-                <label className={labelClass}>Weight Slip Requested?</label>
-                <div className="flex gap-2">
-                  {['Yes', 'No'].map(v => (
-                    <button key={v} onClick={() => setDoc('weight_slip_requested', v)}
-                      className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${docRequest.weight_slip_requested === v ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
-                      {v}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <YesNoToggle label="Weight Slip Requested?" options={['Yes', 'No']} value={docRequest.weight_slip_requested} onChange={v => setDoc('weight_slip_requested', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
+              <YesNoToggle label="Did customer transfer their own body?" options={['Yes', 'No']} value={docRequest.customer_transferred_body} onChange={v => setDoc('customer_transferred_body', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
 
-              <div>
-                <label className={labelClass}>Did customer transfer their own body?</label>
-                <div className="flex gap-2">
-                  {['Yes', 'No'].map(v => (
-                    <button key={v} onClick={() => setDoc('customer_transferred_body', v)}
-                      className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${docRequest.customer_transferred_body === v ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
-                      {v}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-blue-950 border border-blue-800 rounded-lg p-3 text-xs text-blue-300">
+              <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-lg p-3 text-xs text-blue-700 dark:text-blue-300">
                 File uploads (Final Workbook, Signed Recap, Buyers Order, Driver's License, Proof of Insurance, Weight Slip, VIN Verification) will be available in the next update.
               </div>
             </div>
 
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowDocRequest(false)}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm font-semibold transition-colors">
+                className="flex-1 bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg text-gray-700 dark:text-dark-text py-2 rounded-lg text-sm font-semibold transition-colors">
                 Cancel
               </button>
               <button onClick={submitDocRequest}
-                className="flex-1 bg-red-700 hover:bg-red-600 text-white py-2 rounded-lg text-sm font-semibold transition-colors">
+                className="flex-1 bg-ttc-blue hover:bg-ttc-blue-dark text-white py-2 rounded-lg text-sm font-semibold transition-colors">
                 Submit to F&I
               </button>
             </div>
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Reusable Yes/No (or two-option) toggle for the doc request modal
+function YesNoToggle({ label, options, value, onChange, labelClass, sel, unsel }) {
+  return (
+    <div>
+      <label className={labelClass}>{label}</label>
+      <div className="flex gap-2">
+        {options.map(v => (
+          <button key={v} onClick={() => onChange(v)}
+            className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${value === v ? sel : unsel}`}>
+            {v}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
