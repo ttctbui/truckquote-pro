@@ -22,11 +22,11 @@ export default function QuotesTab({ currentUserId, isSalesAdmin }) {
     setLoading(true);
 
     let query = supabase
-  .from('quotes')
-  .select('*')
-  .or('deal_number.is.null,deal_number.eq.')
-  .eq('archived', false)
-  .order('created_at', { ascending: false });
+      .from('quotes')
+      .select('*')
+      .or('deal_number.is.null,deal_number.eq.')
+      .eq('archived', false)
+      .order('created_at', { ascending: false });
 
     // Salespeople see only their own; sales admins/managers see all
     if (!isSalesAdmin && currentUserId) {
@@ -67,29 +67,31 @@ export default function QuotesTab({ currentUserId, isSalesAdmin }) {
     loadQuotes();
   }
 
-  if (loading) return <div className="p-6 text-gray-400">Loading quotes…</div>;
+  if (loading) {
+    return <div className="p-6 text-gray-500 dark:text-dark-muted">Loading quotes…</div>;
+  }
 
   return (
     <div className="p-4">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold text-white">Quotes</h2>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-dark-text">Quotes</h2>
         <Link
           to="/quotes/new"
-          className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg font-semibold"
+          className="bg-ttc-blue hover:bg-ttc-blue-dark text-white px-4 py-2 rounded-lg font-semibold transition-colors"
         >
           + New Quote
         </Link>
       </div>
 
       {quotes.length === 0 ? (
-        <div className="text-gray-400 py-8 text-center">
+        <div className="text-gray-500 dark:text-dark-muted py-8 text-center">
           No open quotes. Start a new one to get rolling.
         </div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-ttc-card">
           <table className="w-full">
-            <thead>
-              <tr className="text-left text-gray-400 border-b border-gray-700">
+            <thead className="bg-gray-50 dark:bg-dark-bg text-xs uppercase tracking-wide text-gray-500 dark:text-dark-muted">
+              <tr className="text-left">
                 <th className="p-3">Quote #</th>
                 <th className="p-3">Customer</th>
                 <th className="p-3">Vehicle</th>
@@ -100,41 +102,47 @@ export default function QuotesTab({ currentUserId, isSalesAdmin }) {
             </thead>
             <tbody>
               {quotes.map((q) => (
-                <tr key={q.id} className="border-b border-gray-800 hover:bg-gray-800/50">
+                <tr
+                  key={q.id}
+                  className="border-t border-gray-200 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg"
+                >
                   <td className="p-3">
-                    <Link to={`/quotes/${q.id}`} className="text-blue-400 hover:underline">
+                    <Link
+                      to={`/quotes/${q.id}`}
+                      className="text-ttc-blue hover:text-ttc-blue-dark dark:text-ttc-blue dark:hover:text-blue-300 font-numeric hover:underline"
+                    >
                       {q.quote_number}
                     </Link>
                   </td>
-                  <td className="p-3 text-white">
-                    <div>{q.customer_name}</div>
-                    <div className="text-xs text-gray-500">{q.company_name}</div>
+                  <td className="p-3">
+                    <div className="text-gray-900 dark:text-dark-text">{q.customer_name}</div>
+                    <div className="text-xs text-gray-500 dark:text-dark-muted">{q.company_name}</div>
                   </td>
-                  <td className="p-3 text-white">
+                  <td className="p-3 text-gray-900 dark:text-dark-text">
                     {q.vehicle_year} {q.vehicle_make} {q.vehicle_model}
                   </td>
                   <td className="p-3">
                     <StatusBadge status={q.status} />
                   </td>
-                  <td className="p-3 text-gray-300">
+                  <td className="p-3 text-gray-700 dark:text-dark-text">
                     {new Date(q.created_at).toLocaleDateString()}
                   </td>
                   <td className="p-3 text-right space-x-2 whitespace-nowrap">
                     {q.deal_number_requested_at ? (
-                      <span className="inline-block px-3 py-1 bg-yellow-900/40 text-yellow-300 rounded text-xs">
+                      <span className="inline-block px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-full text-xs font-medium">
                         Deal # Requested
                       </span>
                     ) : (
                       <button
                         onClick={() => requestDealNumber(q)}
-                        className="px-3 py-1 bg-blue-700 hover:bg-blue-600 text-white rounded text-sm"
+                        className="px-3 py-1 bg-ttc-blue hover:bg-ttc-blue-dark text-white rounded text-sm font-medium transition-colors"
                       >
                         Request Deal #
                       </button>
                     )}
                     <button
                       onClick={() => setMoveRequestQuote(q)}
-                      className="px-3 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded text-sm"
+                      className="px-3 py-1 bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg text-gray-700 dark:text-dark-text rounded text-sm font-medium transition-colors"
                     >
                       Move Request
                     </button>
@@ -159,13 +167,15 @@ export default function QuotesTab({ currentUserId, isSalesAdmin }) {
 }
 
 function StatusBadge({ status }) {
+  // Soft pastel backgrounds, dark text — readable on light AND dark themes
   const styles = {
-    draft:    'bg-gray-700 text-gray-200',
-    pending:  'bg-yellow-800 text-yellow-200',
-    approved: 'bg-green-800 text-green-200',
-    sold:     'bg-emerald-700 text-white',
-    lost:     'bg-red-900 text-red-200',
+    draft:             'bg-gray-100  text-gray-700  dark:bg-gray-800     dark:text-gray-300',
+    pending:           'bg-amber-50  text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
+    pending_approval:  'bg-amber-50  text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
+    approved:          'bg-green-50  text-green-700 dark:bg-green-950/40 dark:text-green-300',
+    sold:              'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
+    lost:              'bg-red-50    text-red-700   dark:bg-red-950/40   dark:text-red-300',
   };
-  const cls = styles[status] ?? 'bg-gray-700 text-gray-200';
-  return <span className={`px-2 py-1 rounded text-xs ${cls}`}>{status ?? '—'}</span>;
+  const cls = styles[status] ?? 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300';
+  return <span className={`px-2 py-1 rounded-full text-xs font-medium ${cls}`}>{status ?? '—'}</span>;
 }
