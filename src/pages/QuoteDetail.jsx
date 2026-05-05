@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { useNavigate, useParams } from 'react-router-dom'
+import TTCHeader from '../components/TTCHeader'
+import ttcLogo from '../assets/ttc-logo.png'
 
 function calcPayment(price, down, tradeValue, tradePayoff, rate, months) {
   const amount = price - down - tradeValue + tradePayoff
@@ -19,7 +21,7 @@ const INCENTIVE_OPTIONS = [
 
 export default function QuoteDetail() {
   const { id } = useParams()
-  const { profile } = useAuth()
+  const { profile, signOut } = useAuth()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -176,47 +178,58 @@ export default function QuoteDetail() {
     if (newStatus) navigate('/')
   }
 
-  const inputClass = "w-full bg-gray-800 text-white rounded-lg px-3 py-2 border border-gray-700 focus:outline-none focus:border-blue-500 text-sm"
-  const labelClass = "block text-gray-400 text-xs mb-1"
-  const sectionClass = "bg-gray-900 border border-gray-800 rounded-xl p-5 mb-4"
+  const inputClass = "w-full bg-white dark:bg-dark-bg text-gray-900 dark:text-dark-text rounded-lg px-3 py-2 border border-gray-300 dark:border-dark-border focus:outline-none focus:border-ttc-blue focus:ring-2 focus:ring-ttc-blue/20 text-sm transition-all"
+  const labelClass = "block text-gray-600 dark:text-dark-muted text-xs mb-1 font-medium"
+  const sectionClass = "bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-xl p-5 mb-4 shadow-ttc-card"
+  const toggleSelected = "bg-ttc-blue border-ttc-blue text-white"
+  const toggleUnselected = "bg-white dark:bg-dark-bg border-gray-300 dark:border-dark-border text-gray-700 dark:text-dark-text hover:border-gray-400 dark:hover:border-dark-muted"
 
-  if (loading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center text-gray-400">Loading...</div>
+  if (loading) return <div className="min-h-screen bg-gray-50 dark:bg-dark-bg flex items-center justify-center text-gray-500 dark:text-dark-muted">Loading...</div>
   if (!form) return null
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      <div className="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/')} className="text-gray-400 hover:text-white text-sm">← Back</button>
-          <span className="text-gray-600">|</span>
-          <span className="text-white font-semibold">{form.quote_number}</span>
-          <span className={`text-xs px-2 py-1 rounded-full ${
-            form.status === 'won' ? 'bg-emerald-900 text-emerald-300' :
-            form.status === 'lost' ? 'bg-red-900 text-red-400' :
-            form.status === 'pending_approval' ? 'bg-yellow-900 text-yellow-300' :
-            form.status === 'approved' ? 'bg-green-900 text-green-300' :
-            'bg-gray-700 text-gray-300'}`}>
-            {form.status === 'won' ? 'Sold' : form.status === 'pending_approval' ? 'Pending' : form.status}
-          </span>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={() => handleSave()} disabled={saving}
-            className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
-            {saved ? '✓ Saved!' : 'Save'}
-          </button>
-          <button onClick={() => handleSave('pending_approval')} disabled={saving}
-            className="bg-red-700 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
-            Submit for Approval
-          </button>
+    <div className="min-h-screen bg-gray-50 dark:bg-dark-bg text-gray-900 dark:text-dark-text">
+      <TTCHeader
+        logoSrc={ttcLogo}
+        appName="TruckQuote Pro"
+        userName={profile?.full_name ?? profile?.email}
+        userRole={profile?.role}
+        rightNav={[{ label: 'Dashboard', href: '/' }]}
+        onSignOut={signOut}
+      />
+
+      {/* Action toolbar */}
+      <div className="bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border px-6 py-3">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigate('/')} className="text-gray-500 dark:text-dark-muted hover:text-gray-900 dark:hover:text-dark-text text-sm">← Back</button>
+            <span className="text-gray-300 dark:text-dark-border">|</span>
+            <span className="text-gray-900 dark:text-dark-text font-semibold font-numeric">{form.quote_number}</span>
+            <StatusPill status={form.status} />
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => handleSave()} disabled={saving}
+              className="bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg text-gray-700 dark:text-dark-text px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
+              {saved ? '✓ Saved!' : 'Save'}
+            </button>
+            <button onClick={() => handleSave('pending_approval')} disabled={saving}
+              className="bg-ttc-blue hover:bg-ttc-blue-dark text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
+              Submit for Approval
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="max-w-4xl mx-auto px-6 py-8">
-        {error && <div className="mb-4 text-red-400 text-sm bg-red-950 border border-red-800 rounded-lg px-4 py-2">{error}</div>}
+        {error && (
+          <div className="mb-4 text-stat-red text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg px-4 py-2">
+            {error}
+          </div>
+        )}
 
         {/* Status */}
         <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wider">Quote Status</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Quote Status</h2>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>Status</label>
@@ -235,7 +248,7 @@ export default function QuoteDetail() {
 
         {/* Customer Info */}
         <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wider">Customer Information</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Customer Information</h2>
           <div className="grid grid-cols-2 gap-4">
             <div><label className={labelClass}>Customer Name *</label><input className={inputClass} value={form.customer_name} onChange={e => set('customer_name', e.target.value)} /></div>
             <div><label className={labelClass}>Company Name</label><input className={inputClass} value={form.company_name} onChange={e => set('company_name', e.target.value)} /></div>
@@ -246,14 +259,14 @@ export default function QuoteDetail() {
 
         {/* Vehicle Info */}
         <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wider">Vehicle Information</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Vehicle Information</h2>
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className={labelClass}>Vehicle Type</label>
               <div className="flex gap-2">
                 {['New', 'Pre-Owned'].map(t => (
                   <button key={t} onClick={() => set('vehicle_type', t)}
-                    className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${form.vehicle_type === t ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
+                    className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${form.vehicle_type === t ? toggleSelected : toggleUnselected}`}>
                     {t}
                   </button>
                 ))}
@@ -299,14 +312,14 @@ export default function QuoteDetail() {
 
         {/* Deal Type */}
         <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wider">Deal Information</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Deal Information</h2>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>Deal Type</label>
               <div className="flex gap-2">
                 {['Finance', 'Cash'].map(t => (
                   <button key={t} onClick={() => set('deal_type', t)}
-                    className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${form.deal_type === t ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
+                    className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${form.deal_type === t ? toggleSelected : toggleUnselected}`}>
                     {t}
                   </button>
                 ))}
@@ -317,18 +330,24 @@ export default function QuoteDetail() {
 
         {/* GBB Pricing */}
         <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wider">Good · Better · Best Pricing</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Good · Better · Best Pricing</h2>
           <div className="grid grid-cols-3 gap-4">
             {['good', 'better', 'best'].map(tier => (
               <div key={tier} onClick={() => set('selected_tier', tier)}
-                className={`rounded-xl border-2 p-4 cursor-pointer transition-all ${form.selected_tier === tier ? 'border-red-600 bg-red-950' : 'border-gray-700 bg-gray-800 hover:border-gray-600'}`}>
-                <p className="text-xs font-semibold uppercase tracking-wider mb-2 text-gray-400">{tier}</p>
+                className={`rounded-xl border-2 p-4 cursor-pointer transition-all ${
+                  form.selected_tier === tier
+                    ? 'border-ttc-blue bg-ttc-blue-light dark:bg-ttc-blue/10'
+                    : 'border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-bg hover:border-gray-300 dark:hover:border-dark-muted'
+                }`}>
+                <p className="text-xs font-semibold uppercase tracking-wider mb-2 text-gray-500 dark:text-dark-muted">{tier}</p>
                 <div className="relative">
-                  <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
-                  <input className="w-full bg-gray-900 text-white rounded-lg pl-7 pr-3 py-2 border border-gray-700 focus:outline-none focus:border-blue-500 text-sm"
-                    value={form[`price_${tier}`]} onChange={e => set(`price_${tier}`, e.target.value)} placeholder="0" onClick={e => e.stopPropagation()} />
+                  <span className="absolute left-3 top-2 text-gray-400 dark:text-dark-muted text-sm">$</span>
+                  <input
+                    className="w-full bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text rounded-lg pl-7 pr-3 py-2 border border-gray-300 dark:border-dark-border focus:outline-none focus:border-ttc-blue focus:ring-2 focus:ring-ttc-blue/20 text-sm transition-all font-numeric"
+                    value={form[`price_${tier}`]} onChange={e => set(`price_${tier}`, e.target.value)} placeholder="0" onClick={e => e.stopPropagation()}
+                  />
                 </div>
-                {form.selected_tier === tier && <p className="text-xs text-red-400 mt-2">✓ Selected</p>}
+                {form.selected_tier === tier && <p className="text-xs text-ttc-blue mt-2 font-semibold">✓ Selected</p>}
               </div>
             ))}
           </div>
@@ -336,7 +355,7 @@ export default function QuoteDetail() {
 
         {/* Finance */}
         <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wider">Financing</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Financing</h2>
           <div className="grid grid-cols-3 gap-4">
             <div><label className={labelClass}>Down Payment</label><input className={inputClass} value={form.down_payment} onChange={e => set('down_payment', e.target.value)} /></div>
             <div><label className={labelClass}>Trade-In Value</label><input className={inputClass} value={form.trade_value} onChange={e => set('trade_value', e.target.value)} /></div>
@@ -348,17 +367,17 @@ export default function QuoteDetail() {
               </select>
             </div>
             <div><label className={labelClass}>Interest Rate %</label><input className={inputClass} value={form.interest_rate} onChange={e => set('interest_rate', e.target.value)} /></div>
-            <div className="bg-gray-800 rounded-xl p-3 border border-gray-700">
-              <p className="text-gray-400 text-xs mb-1">Est. Monthly Payment</p>
-              <p className="text-2xl font-bold text-white">${payment.toFixed(2)}</p>
-              <p className="text-gray-500 text-xs">{form.selected_tier} price · {form.term_months} mo</p>
+            <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
+              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Est. Monthly Payment</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-dark-text font-numeric">${payment.toFixed(2)}</p>
+              <p className="text-gray-500 dark:text-dark-muted text-xs">{form.selected_tier} price · {form.term_months} mo</p>
             </div>
           </div>
         </div>
 
         {/* RECAP */}
         <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wider">RECAP — Deal Summary</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">RECAP — Deal Summary</h2>
           <div className="grid grid-cols-3 gap-4 mb-4">
             <div><label className={labelClass}>Cost of Vehicle</label><input className={inputClass} value={form.cost_of_vehicle} onChange={e => set('cost_of_vehicle', e.target.value)} placeholder="0" /></div>
             <div><label className={labelClass}>Pack Amount</label><input className={inputClass} value={form.pack_amount} onChange={e => set('pack_amount', e.target.value)} placeholder="500" /></div>
@@ -369,24 +388,28 @@ export default function QuoteDetail() {
             <div className="flex flex-wrap gap-2 mt-1">
               {INCENTIVE_OPTIONS.map(inc => (
                 <button key={inc} onClick={() => toggleIncentive(inc)}
-                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${form.selected_incentives.includes(inc) ? 'bg-blue-700 border-blue-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                    form.selected_incentives.includes(inc)
+                      ? 'bg-ttc-blue border-ttc-blue text-white'
+                      : 'bg-white dark:bg-dark-bg border-gray-300 dark:border-dark-border text-gray-700 dark:text-dark-text hover:border-gray-400 dark:hover:border-dark-muted'
+                  }`}>
                   {inc}
                 </button>
               ))}
             </div>
           </div>
           <div className="grid grid-cols-3 gap-4 mt-4">
-            <div className="bg-gray-800 rounded-xl p-3 border border-gray-700">
-              <p className="text-gray-400 text-xs mb-1">Sale Price</p>
-              <p className="text-xl font-bold text-white">${selectedPrice.toLocaleString()}</p>
+            <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
+              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Sale Price</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-dark-text font-numeric">${selectedPrice.toLocaleString()}</p>
             </div>
-            <div className="bg-gray-800 rounded-xl p-3 border border-gray-700">
-              <p className="text-gray-400 text-xs mb-1">Gross Profit</p>
-              <p className={`text-xl font-bold ${grossProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>${grossProfit.toLocaleString()}</p>
+            <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
+              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Gross Profit</p>
+              <p className={`text-xl font-bold font-numeric ${grossProfit >= 0 ? 'text-stat-green' : 'text-stat-red'}`}>${grossProfit.toLocaleString()}</p>
             </div>
-            <div className="bg-gray-800 rounded-xl p-3 border border-gray-700">
-              <p className="text-gray-400 text-xs mb-1">Commission ({commissionRate}%)</p>
-              <p className="text-xl font-bold text-yellow-400">${commission.toLocaleString()}</p>
+            <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
+              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Commission ({commissionRate}%)</p>
+              <p className="text-xl font-bold text-stat-yellow font-numeric">${commission.toLocaleString()}</p>
             </div>
           </div>
           <div className="mt-4">
@@ -394,7 +417,7 @@ export default function QuoteDetail() {
             <div className="flex gap-2 w-48">
               {['Yes', 'No'].map(v => (
                 <button key={v} onClick={() => set('docs_submitted', v)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${form.docs_submitted === v ? 'bg-red-700 border-red-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'}`}>
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${form.docs_submitted === v ? toggleSelected : toggleUnselected}`}>
                   {v}
                 </button>
               ))}
@@ -407,17 +430,32 @@ export default function QuoteDetail() {
         </div>
 
         <div className="flex justify-end gap-3 mt-6">
-          <button onClick={() => navigate('/')} className="text-gray-400 hover:text-white px-4 py-2 text-sm transition-colors">Cancel</button>
+          <button onClick={() => navigate('/')} className="text-gray-500 dark:text-dark-muted hover:text-gray-900 dark:hover:text-dark-text px-4 py-2 text-sm transition-colors">Cancel</button>
           <button onClick={() => handleSave()} disabled={saving}
-            className="bg-gray-700 hover:bg-gray-600 text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
+            className="bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg text-gray-700 dark:text-dark-text px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
             {saved ? '✓ Saved!' : 'Save'}
           </button>
           <button onClick={() => handleSave('pending_approval')} disabled={saving}
-            className="bg-red-700 hover:bg-red-600 text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
+            className="bg-ttc-blue hover:bg-ttc-blue-dark text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
             Submit for Approval
           </button>
         </div>
       </div>
     </div>
   )
+}
+
+function StatusPill({ status }) {
+  const styles = {
+    won:              'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
+    sold:             'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
+    lost:             'bg-red-50    text-red-700   dark:bg-red-950/40   dark:text-red-300',
+    pending_approval: 'bg-amber-50  text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
+    approved:         'bg-green-50  text-green-700 dark:bg-green-950/40 dark:text-green-300',
+    sent:             'bg-blue-50   text-blue-700  dark:bg-blue-950/40  dark:text-blue-300',
+    draft:            'bg-gray-100  text-gray-700  dark:bg-gray-800     dark:text-gray-300',
+  }
+  const cls = styles[status] ?? 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+  const label = status === 'won' ? 'Sold' : status === 'pending_approval' ? 'Pending' : (status ?? '—')
+  return <span className={`text-xs px-2 py-1 rounded-full font-medium ${cls}`}>{label}</span>
 }
