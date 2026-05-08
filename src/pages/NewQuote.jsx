@@ -90,13 +90,12 @@ export default function NewQuote() {
   }
   const bodyStyles = ['Cab & Chassis', 'Box Truck', 'Flatbed', 'Dump', 'Stake', 'Refrigerated', 'Service Body', 'Crane/Boom', 'Other']
 
-  // Phase B:
-  //   - Sales admins / managers get auto-approved at creation (status='approved' + approved_at/by)
-  //   - Salespeople still go to pending_approval
-  //   - salesperson_id auto-populated from profile.id
-  //   - selected_incentives now actually saved
-  //   - empty deal_number stored as null, not ''
-  //   - draft is gone — Phase A locked the enum to v2 only
+  // Phase B + D:
+  //   - Sales admins / managers get auto-approved at creation
+  //   - Salespeople still go to pending_approval — this is what fires the
+  //     "needs approval" email to sales admins
+  //   - Phase D: pass the full quote into logNewQuoteEvent so the email
+  //     template doesn't need to re-fetch
   async function handleSave() {
     if (!form.customer_name) { setError('Customer name is required'); return }
     const finalMake = form.make === 'Other' ? form.make_other : form.make
@@ -132,21 +131,16 @@ export default function NewQuote() {
       interest_rate: parseFloat(form.interest_rate) || 6.99,
       monthly_payment: payment,
       deal_type: form.deal_type,
-      // Phase 5 fix: empty deal_number → null
       deal_number: form.deal_number?.trim() || null,
       cost_of_vehicle: parseFloat(form.cost_of_vehicle) || null,
       pack_amount: parseFloat(form.pack_amount) || 500,
       gross_profit: grossProfit,
       commission: commission,
-      // Phase B: incentives now persisted
       selected_incentives: form.selected_incentives,
       notes: form.notes,
       docs_submitted: form.docs_submitted,
-      // salesperson_id will be filled in by buildNewQuoteRow if not set
     }
 
-    // Phase B: helper sets status (auto-approve for sales_admin/manager/admin),
-    // stamps salesperson_id, last_edited_at/by, and (when auto-approving) approved_at/by.
     const { row, autoApproved } = buildNewQuoteRow(rawRow, profile)
 
     const { data: newQuote, error: err } = await supabase
@@ -158,10 +152,9 @@ export default function NewQuote() {
     setSaving(false)
     if (err) { setError(err.message); return }
 
-    // Audit-log the auto-approve event (regular create event comes from existing trigger)
-    await logNewQuoteEvent({ quoteId: newQuote.id, autoApproved, profile })
+    // Phase D: pass `quote: newQuote` so the email template has full data
+    await logNewQuoteEvent({ quoteId: newQuote.id, autoApproved, profile, quote: newQuote })
 
-    // Jump straight into the new quote so the user can see status, edit, request docs, etc.
     navigate(`/quote/${newQuote.id}`)
   }
 
@@ -171,7 +164,6 @@ export default function NewQuote() {
   const toggleSelected = "bg-ttc-blue border-ttc-blue text-white"
   const toggleUnselected = "bg-white dark:bg-dark-bg border-gray-300 dark:border-dark-border text-gray-700 dark:text-dark-text hover:border-gray-400 dark:hover:border-dark-muted"
 
-  // Phase B: button label adapts to whether this user will auto-approve
   const isAutoApprover = ['sales_admin', 'manager', 'admin'].includes(profile?.role)
   const submitLabel = isAutoApprover ? 'Save & Approve' : 'Submit for Approval'
 
@@ -186,7 +178,6 @@ export default function NewQuote() {
         onSignOut={signOut}
       />
 
-      {/* Action toolbar — Doc Request button removed (lives on QuoteDetail now) */}
       <div className="bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border px-6 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -213,14 +204,12 @@ export default function NewQuote() {
           </div>
         )}
 
-        {/* Phase B: heads-up for auto-approvers so it's not a surprise */}
         {isAutoApprover && (
           <div className="mb-4 text-sm bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-blue-800 dark:text-blue-300 rounded-lg px-4 py-2">
             As a {profile.role.replace('_', ' ')}, your quotes are auto-approved on save.
           </div>
         )}
 
-        {/* Customer Info */}
         <div className={sectionClass}>
           <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Customer Information</h2>
           <div className="grid grid-cols-2 gap-4">
@@ -231,7 +220,6 @@ export default function NewQuote() {
           </div>
         </div>
 
-        {/* Vehicle Info */}
         <div className={sectionClass}>
           <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Vehicle Information</h2>
           <div className="grid grid-cols-3 gap-4">
@@ -284,7 +272,6 @@ export default function NewQuote() {
           </div>
         </div>
 
-        {/* Deal Type */}
         <div className={sectionClass}>
           <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Deal Information</h2>
           <div className="grid grid-cols-2 gap-4">
@@ -303,7 +290,6 @@ export default function NewQuote() {
           </div>
         </div>
 
-        {/* GBB Pricing */}
         <div className={sectionClass}>
           <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Good · Better · Best Pricing</h2>
           <div className="grid grid-cols-3 gap-4">
@@ -328,7 +314,6 @@ export default function NewQuote() {
           </div>
         </div>
 
-        {/* Finance */}
         <div className={sectionClass}>
           <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Financing</h2>
           <div className="grid grid-cols-3 gap-4">
@@ -350,7 +335,6 @@ export default function NewQuote() {
           </div>
         </div>
 
-        {/* RECAP */}
         <div className={sectionClass}>
           <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">RECAP — Deal Summary</h2>
           <div className="grid grid-cols-3 gap-4 mb-4">
