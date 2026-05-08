@@ -11,10 +11,13 @@ import { DocStatusBadge } from './StatusBadge';
  * - Sales admins/managers see a pending-request queue at the top.
  * - All users see their assigned-deal quotes below, with per-row
  *   Move Request and Doc Request action buttons.
+ *
+ * Phase D: accepts `profile` prop so DocRequestModal can fire emails
+ * with the salesperson's name on file.
  */
-export default function DealNumberTab({ currentUserId, isSalesAdmin }) {
+export default function DealNumberTab({ currentUserId, isSalesAdmin, profile }) {
   const [quotes, setQuotes] = useState([]);
-  const [docRequestsByQuote, setDocRequestsByQuote] = useState({}); // { quote_id: latest doc_request }
+  const [docRequestsByQuote, setDocRequestsByQuote] = useState({});
   const [pending, setPending] = useState([]);
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState({});
@@ -68,7 +71,6 @@ export default function DealNumberTab({ currentUserId, isSalesAdmin }) {
         .in('quote_id', ids)
         .order('created_at', { ascending: false });
 
-      // Keep only the newest per quote_id
       const byQuote = {};
       (drs ?? []).forEach((dr) => {
         if (!byQuote[dr.quote_id]) byQuote[dr.quote_id] = dr;
@@ -295,6 +297,7 @@ export default function DealNumberTab({ currentUserId, isSalesAdmin }) {
         <DocRequestModal
           quote={docRequestQuote}
           currentUserId={currentUserId}
+          profile={profile}
           onClose={() => setDocRequestQuote(null)}
           onCreated={() => { setDocRequestQuote(null); loadAll(); }}
         />
