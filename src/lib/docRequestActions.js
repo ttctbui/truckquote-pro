@@ -3,6 +3,10 @@
 // Doc request status transitions:
 //   pending     ←→ incomplete (Joe sets incomplete; salesperson OR Joe flips back)
 //   pending     →  ready (Joe; terminal)
+//
+// Phase D: emails Joe when a NEW doc request is submitted.
+// Other doc-request events (incomplete, update_requested, ready) are wired
+// in drop 3.
 
 import { supabase } from './supabase';
 import {
@@ -11,17 +15,78 @@ import {
   canReopenDocAsJoe,
   canRequestDocUpdate,
 } from './permissions';
+import { sendNotification, readSecret } from './notify';
+import { docRequestNew } from './email_templates';
 
 async function logDocEvent(docId, quoteId, event, actorId, meta = null) {
   const { error } = await supabase.from('audit_log').insert({
-    quote_id: quoteId,        // pivot on quote for the activity feed
-    doc_request_id: docId,    // assumes audit_log has this nullable column;
-                              // if not yet added, drop this line — meta below carries it
+    quote_id: quoteId,
     event,
     actor_id: actorId,
     meta: { ...(meta || {}), doc_request_id: docId },
   });
   if (error) console.error('audit_log insert failed:', event, error);
+}
+
+async function getBaseUrl() {
+  const fromSecret = await readSecret('app_base_url');
+  if (fromSecret) return fromSecret.replace(/\/+$/, '');
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin;
+  }
+  return 'https://truckquote-pro.vercel.app';
+}
+
+/**
+ * Phase D — call this AFTER the doc_request row has been inserted.
+ * Reads the configured Joe-recipients from tqp_secrets so admins can
+ * change who gets these emails without code deploys.
+ */
+export async function notifyDocRequestSubmitted({ doc, quote, profile }) {
+  // Recipients: editable in tqp_secrets (so when Joe is on PTO, IT can swap)
+  const csv = await readSecret('doc_request_recipients');
+  const emails = (csv || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.includes('@'));
+
+  if (!emails.length) {
+    console.warn('No doc_request_recipients configured in tqp_secrets — email skipped.');
+    return;
+  }
+
+  const baseUrl = await getBaseUrl();
+  const { subject, html } = docRequestNew({
+    quote,
+    doc,
+    salespersonName: profile?.full_name || profile?.email,
+    baseUrl,
+  });
+
+  // Look up f_and_i users for in-app notifications too
+  const { data: fAndIUsers } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('role', 'f_and_i');
+
+  const notifications = (fAndIUsers || []).map((u) => ({
+    user_id: u.id,
+    kind: 'doc_request_new',
+    title: `New doc request: ${quote.customer_name || 'Customer'}`,
+    body: `From ${profile?.full_name || profile?.email || 'a salesperson'} · Deal ${doc.deal_number || quote.deal_number || '?'}`,
+    link: `/quotes/${quote.id}`,
+    quote_id: quote.id,
+  }));
+
+  sendNotification({
+    template: 'doc_request_new',
+    to: emails,
+    subject,
+    html,
+    notifications,
+    quote_id: quote.id,
+    payload: { submitter_id: profile?.id, deal_number: doc.deal_number },
+  });
 }
 
 // --- Joe: pending → incomplete -----------------------------------------
@@ -50,7 +115,7 @@ export async function markDocIncomplete({ doc, profile, reason }) {
   if (error) return { data: null, error };
 
   await logDocEvent(doc.id, doc.quote_id, 'doc_request_marked_incomplete', profile.id, { reason });
-  // TODO: Phase D — email salesperson "Joe needs more info: <reason>"
+  // TODO: Phase D drop 3 — email salesperson "Joe needs more info: <reason>"
   return { data, error: null };
 }
 
@@ -76,7 +141,7 @@ export async function markDocReady({ doc, profile }) {
   if (error) return { data: null, error };
 
   await logDocEvent(doc.id, doc.quote_id, 'doc_request_marked_ready', profile.id);
-  // TODO: Phase D — email salesperson "your docs are ready"
+  // TODO: Phase D drop 3 — email salesperson "your docs are ready"
   return { data, error: null };
 }
 
@@ -104,7 +169,7 @@ export async function requestDocUpdate({ doc, quote, profile }) {
   if (error) return { data: null, error };
 
   await logDocEvent(doc.id, doc.quote_id, 'doc_request_update_requested', profile.id);
-  // TODO: Phase D — email Joe "salesperson responded, please re-review"
+  // TODO: Phase D drop 3 — email Joe "salesperson responded, please re-review"
   return { data, error: null };
 }
 
@@ -121,8 +186,6 @@ export async function reopenDocAsJoe({ doc, profile }) {
     .update({
       status: 'pending',
       pending_at: now,
-      // intentionally NOT bumping update_request_count — Joe's override isn't
-      // a salesperson request
     })
     .eq('id', doc.id)
     .select()

@@ -1,10 +1,10 @@
 // src/lib/quoteActions.js
 //
 // All quote state transitions live here. Each function:
-//   1. Re-checks permission (defense in depth — UI hides buttons, RLS enforces, this is the middle layer)
-//   2. Writes the status + timestamp/actor columns in one update
+//   1. Re-checks permission (UI hides buttons, RLS enforces, this is middle layer)
+//   2. Writes status + timestamp/actor columns in one update
 //   3. Writes an audit_log row
-//   4. Leaves a Phase D notification hook
+//   4. Fires Phase D notifications (email + in-app) — best effort, never blocks
 //
 // All functions return { data, error } to match the supabase pattern.
 
@@ -17,6 +17,16 @@ import {
   canUnarchive,
   shouldAutoApprove,
 } from './permissions';
+import {
+  sendNotification,
+  emailsForRoles,
+  resolveEmails,
+  readSecret,
+} from './notify';
+import {
+  quoteApprovalNeeded,
+  quoteApproved,
+} from './email_templates';
 
 // --- internal -----------------------------------------------------------
 
@@ -28,6 +38,26 @@ async function logEvent(quoteId, event, actorId, meta = null) {
     meta,
   });
   if (error) console.error('audit_log insert failed:', event, error);
+}
+
+// Try to read the configured app base URL; fall back to current origin.
+async function getBaseUrl() {
+  const fromSecret = await readSecret('app_base_url');
+  if (fromSecret) return fromSecret.replace(/\/+$/, '');
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin;
+  }
+  return 'https://truckquote-pro.vercel.app';
+}
+
+async function lookupProfile(userId) {
+  if (!userId) return null;
+  const { data } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, role')
+    .eq('id', userId)
+    .maybeSingle();
+  return data || null;
 }
 
 // --- approve ------------------------------------------------------------
@@ -61,8 +91,36 @@ export async function approveQuote({ quote, profile }) {
     profile.id,
   );
 
-  // TODO: Phase D notification — email salesperson "your quote is approved"
-  // (skip if isSelf, they already know)
+  // 📨 Phase D: notify the salesperson — but skip if they approved their own quote
+  if (!isSelf && data?.salesperson_id) {
+    const baseUrl = await getBaseUrl();
+    const salespersonProfile = await lookupProfile(data.salesperson_id);
+    const salespersonEmail = salespersonProfile?.email;
+    if (salespersonEmail) {
+      const { subject, html } = quoteApproved({
+        quote: data,
+        approverName: profile.full_name || profile.email,
+        baseUrl,
+      });
+      // fire-and-forget
+      sendNotification({
+        template: 'quote_approved',
+        to: [salespersonEmail],
+        subject,
+        html,
+        notifications: [{
+          user_id: data.salesperson_id,
+          kind: 'quote_approved',
+          title: `Quote approved: ${data.quote_number || ''}`,
+          body: `Approved by ${profile.full_name || profile.email}`,
+          link: `/quotes/${data.id}`,
+          quote_id: data.id,
+        }],
+        quote_id: data.id,
+        payload: { approver_id: profile.id, quote_number: data.quote_number },
+      });
+    }
+  }
 
   return { data, error: null };
 }
@@ -101,15 +159,62 @@ export function buildNewQuoteRow(rawRow, profile) {
 }
 
 /**
- * Call AFTER the insert succeeds, to write the audit event.
+ * Call AFTER the insert succeeds. Writes the audit event AND fires
+ * the "needs approval" email to sales admins + managers (only if not auto-approved).
  */
-export async function logNewQuoteEvent({ quoteId, autoApproved, profile }) {
+export async function logNewQuoteEvent({ quoteId, autoApproved, profile, quote }) {
   if (autoApproved) {
     await logEvent(quoteId, 'quote_self_approved', profile.id, {
       reason: 'sales_admin_auto_approve_on_create',
     });
+    return; // nobody else needs to know — sales admin approved their own
   }
-  // Non-auto path: the regular "quote_created" event from your existing trigger handles it.
+
+  await logEvent(quoteId, 'quote_submitted_for_approval', profile.id);
+
+  // 📨 Phase D: tell sales admins + managers + admins to come look
+  const baseUrl = await getBaseUrl();
+  const { emails, userIds } = await emailsForRoles(['sales_admin', 'manager', 'admin']);
+  if (!emails.length) return;
+
+  const fullQuote = quote ?? (await supabase
+    .from('quotes')
+    .select('*')
+    .eq('id', quoteId)
+    .single()
+    .then(({ data }) => data));
+
+  if (!fullQuote) return;
+
+  const { subject, html } = quoteApprovalNeeded({
+    quote: fullQuote,
+    salespersonName: profile.full_name || profile.email,
+    baseUrl,
+  });
+
+  const notifications = userIds
+    .filter((id) => id !== profile.id) // don't ping yourself if you somehow qualify
+    .map((id) => ({
+      user_id: id,
+      kind: 'quote_approval_needed',
+      title: `Quote needs approval: ${fullQuote.quote_number || ''}`,
+      body: `${profile.full_name || profile.email} submitted ${fullQuote.customer_name || 'a quote'}`,
+      link: `/quotes/${fullQuote.id}`,
+      quote_id: fullQuote.id,
+    }));
+
+  sendNotification({
+    template: 'quote_approval_needed',
+    to: emails,
+    subject,
+    html,
+    notifications,
+    quote_id: fullQuote.id,
+    payload: {
+      submitter_id: profile.id,
+      quote_number: fullQuote.quote_number,
+    },
+  });
 }
 
 // --- mark delivered (auto-archive) -------------------------------------
@@ -140,7 +245,7 @@ export async function markDelivered({ quote, profile }) {
   if (error) return { data: null, error };
 
   await logEvent(quote.id, 'quote_marked_delivered', profile.id);
-  // TODO: Phase D — celebrate notification to manager / sales_admin
+  // No notification: it's a self-action celebration, not actionable for others.
 
   return { data, error: null };
 }
@@ -169,7 +274,7 @@ export async function markLost({ quote, profile, reason = null }) {
   if (error) return { data: null, error };
 
   await logEvent(quote.id, 'quote_marked_lost', profile.id, reason ? { reason } : null);
-  // pg_cron sweeps to archive after 7 days. No notification on Lost.
+  // No notification — pg_cron sweeps to archive after 7 days, no email needed.
 
   return { data, error: null };
 }
@@ -217,7 +322,6 @@ export async function unarchive({ quote, profile }) {
       archive_reason: null,
       pre_archive_status: null,
       status: restored,
-      // If we're un-Losting, clear the lost_at so the cron doesn't immediately re-archive
       lost_at: restored === 'lost' ? null : quote.lost_at,
       lost_by: restored === 'lost' ? null : quote.lost_by,
       last_edited_at: now,
