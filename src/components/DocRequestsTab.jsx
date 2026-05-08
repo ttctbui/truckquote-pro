@@ -1,20 +1,21 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { DocStatusBadge } from './StatusBadge';
 
 /**
  * DocRequestsTab — list view of all doc requests across all quotes.
- * F&I (Joe) lives here. Salespeople see their own; managers/admins see all.
  *
- * Filters: All / Pending / Incomplete / Ready
- * Default: 'pending' for f_and_i, 'all' for everyone else
+ * - Filters: All / Pending / Incomplete / Ready
+ * - Default: 'pending' for f_and_i, 'all' for everyone else
+ * - Whole row is clickable → navigates to /quotes/{quote_id}
  *
- * NOTE: We fetch doc_requests and quotes separately, then merge in JS.
- * Earlier version used a Supabase FK embed which was failing silently
- * because the auto-generated FK constraint name didn't match expectations.
+ * NOTE: We fetch doc_requests + quotes separately and merge in JS
+ * (not via Supabase FK embed). Salesperson identity falls back through:
+ *   quote.salesperson_id → doc_request.requester_id → doc_request.salesperson (text)
  */
 export default function DocRequestsTab({ currentUserId, role }) {
+  const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState(role === 'f_and_i' ? 'pending' : 'all');
@@ -44,9 +45,10 @@ export default function DocRequestsTab({ currentUserId, role }) {
     const quoteIds = [...new Set((docs ?? []).map((d) => d.quote_id).filter(Boolean))];
     let quotesById = {};
     if (quoteIds.length) {
+      // Conservative SELECT — only columns we know exist on the table
       const { data: quotes, error: qErr } = await supabase
         .from('quotes')
-        .select('id, quote_number, customer_name, deal_number, salesperson_id, salesperson_name')
+        .select('id, quote_number, customer_name, deal_number, salesperson_id')
         .in('id', quoteIds);
       if (qErr) {
         console.error('DocRequestsTab quotes load error:', qErr);
@@ -57,10 +59,14 @@ export default function DocRequestsTab({ currentUserId, role }) {
 
     const merged = (docs ?? []).map((d) => ({ ...d, quote: quotesById[d.quote_id] || null }));
 
-    // Salesperson scope: only their own. Sales admins/managers/admins/F&I see all.
+    // Scope: full-access roles see everything. Salespeople see rows where
+    // they own the quote OR they are the requester of the doc_request.
     const filtered = isAllAccess
       ? merged
-      : merged.filter((r) => r.quote?.salesperson_id === currentUserId);
+      : merged.filter((r) =>
+          r.quote?.salesperson_id === currentUserId ||
+          r.requester_id === currentUserId
+        );
 
     setRows(filtered);
     setLoading(false);
@@ -105,9 +111,7 @@ export default function DocRequestsTab({ currentUserId, role }) {
 
       {visible.length === 0 ? (
         <div className="text-gray-500 dark:text-dark-muted py-8 text-center">
-          {filter === 'all'
-            ? 'No doc requests yet.'
-            : `No ${filter} doc requests.`}
+          {filter === 'all' ? 'No doc requests yet.' : `No ${filter} doc requests.`}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-ttc-card">
@@ -121,7 +125,6 @@ export default function DocRequestsTab({ currentUserId, role }) {
                 <th className="p-3">Status</th>
                 <th className="p-3">Waiting</th>
                 <th className="p-3">Last Activity</th>
-                <th className="p-3"></th>
               </tr>
             </thead>
             <tbody>
@@ -129,10 +132,17 @@ export default function DocRequestsTab({ currentUserId, role }) {
                 const quote = r.quote;
                 const waitingDays = waitingDaysSince(r);
                 const lastActivity = lastActivityIso(r);
+                const target = quote ? `/quotes/${quote.id}` : null;
+
                 return (
                   <tr
                     key={r.id}
-                    className="border-t border-gray-200 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg"
+                    onClick={() => target && navigate(target)}
+                    className={`border-t border-gray-200 dark:border-dark-border ${
+                      target
+                        ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-bg'
+                        : 'opacity-60'
+                    }`}
                   >
                     <td className="p-3 text-gray-900 dark:text-dark-text font-numeric">
                       {quote?.deal_number ?? r.deal_number ?? '—'}
@@ -141,17 +151,20 @@ export default function DocRequestsTab({ currentUserId, role }) {
                       {quote ? (
                         <Link
                           to={`/quotes/${quote.id}`}
+                          onClick={(e) => e.stopPropagation()}
                           className="text-ttc-blue hover:text-ttc-blue-dark dark:text-ttc-blue dark:hover:text-blue-300 font-numeric hover:underline"
                         >
-                          {quote.quote_number}
+                          {quote.quote_number ?? '(no quote #)'}
                         </Link>
-                      ) : '—'}
+                      ) : (
+                        <span className="text-gray-400 italic">orphan</span>
+                      )}
                     </td>
                     <td className="p-3 text-gray-900 dark:text-dark-text">
                       {quote?.customer_name ?? r.customer ?? '—'}
                     </td>
                     <td className="p-3 text-gray-700 dark:text-dark-text">
-                      {quote?.salesperson_name ?? r.salesperson ?? '—'}
+                      {r.salesperson || '—'}
                     </td>
                     <td className="p-3">
                       <DocStatusBadge doc={r} />
@@ -161,16 +174,6 @@ export default function DocRequestsTab({ currentUserId, role }) {
                     </td>
                     <td className="p-3 text-gray-600 dark:text-dark-muted text-sm">
                       {lastActivity ? new Date(lastActivity).toLocaleString() : '—'}
-                    </td>
-                    <td className="p-3 text-right">
-                      {quote && (
-                        <Link
-                          to={`/quotes/${quote.id}`}
-                          className="px-3 py-1 bg-ttc-blue hover:bg-ttc-blue-dark text-white rounded text-sm font-medium transition-colors"
-                        >
-                          Open
-                        </Link>
-                      )}
                     </td>
                   </tr>
                 );
