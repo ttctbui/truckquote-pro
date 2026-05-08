@@ -47,7 +47,6 @@ export default function Dashboard() {
         onSignOut={signOut}
       />
 
-      {/* Tabs — sit just under the header in their own band */}
       <nav className="bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border">
         <div className="max-w-7xl mx-auto px-4 flex gap-1 overflow-x-auto">
           <TabButton active={tab === 'quotes'} onClick={() => setTab('quotes')}>
@@ -72,7 +71,11 @@ export default function Dashboard() {
           <QuotesTab currentUserId={user?.id} isSalesAdmin={isSalesAdmin} />
         )}
         {tab === 'deal_number' && (
-          <DealNumberTab currentUserId={user?.id} isSalesAdmin={isSalesAdmin} />
+          <DealNumberTab
+            currentUserId={user?.id}
+            isSalesAdmin={isSalesAdmin}
+            profile={profile}
+          />
         )}
         {tab === 'move_request' && (
           <MoveRequestTab currentUserId={user?.id} isSalesAdmin={isSalesAdmin} />
@@ -100,14 +103,6 @@ function TabButton({ active, onClick, children }) {
   );
 }
 
-/**
- * Red badge showing count of items needing attention.
- * - kind="deal_number" — pending deal-number requests (sales admins only)
- * - kind="doc_requests" — pending doc requests (everyone — Joe most of all)
- *
- * Bug fix: the original used useState(() => ...) which never runs side effects.
- * Replaced with useEffect.
- */
 function PendingBadge({ kind }) {
   const [count, setCount] = useState(0);
 
@@ -121,7 +116,6 @@ function PendingBadge({ kind }) {
           .from('v_pending_deal_number_requests')
           .select('id', { count: 'exact', head: true });
       } else {
-        // doc_requests — count rows with status='pending' (action needed by F&I)
         query = supabase
           .from('doc_requests')
           .select('id', { count: 'exact', head: true })
