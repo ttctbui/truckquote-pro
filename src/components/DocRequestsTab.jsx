@@ -4,11 +4,15 @@ import { supabase } from '../lib/supabase';
 import { DocStatusBadge } from './StatusBadge';
 
 /**
- * DocRequestsTab — queue/list view of all doc requests across all quotes.
+ * DocRequestsTab — list view of all doc requests across all quotes.
  * F&I (Joe) lives here. Salespeople see their own; managers/admins see all.
  *
  * Filters: All / Pending / Incomplete / Ready
  * Default: 'pending' for f_and_i, 'all' for everyone else
+ *
+ * NOTE: We fetch doc_requests and quotes separately, then merge in JS.
+ * Earlier version used a Supabase FK embed which was failing silently
+ * because the auto-generated FK constraint name didn't match expectations.
  */
 export default function DocRequestsTab({ currentUserId, role }) {
   const [rows, setRows] = useState([]);
@@ -25,34 +29,40 @@ export default function DocRequestsTab({ currentUserId, role }) {
   async function load() {
     setLoading(true);
 
-    // Pull doc_requests joined with quote info via foreign-key embed.
-    // We rely on Supabase auto-discovering the FK from doc_requests.quote_id → quotes.id.
-    let query = supabase
+    const { data: docs, error: docsErr } = await supabase
       .from('doc_requests')
-      .select(`
-        *,
-        quote:quotes!doc_requests_quote_id_fkey (
-          id,
-          quote_number,
-          customer_name,
-          deal_number,
-          salesperson_id,
-          salesperson_name
-        )
-      `)
+      .select('*')
       .order('created_at', { ascending: false });
 
-    const { data, error } = await query;
-    if (error) {
-      console.error('DocRequestsTab load error:', error);
+    if (docsErr) {
+      console.error('DocRequestsTab doc_requests load error:', docsErr);
       setRows([]);
-    } else {
-      // Salesperson scope: only requests for their own quotes
-      const filtered = isAllAccess
-        ? (data ?? [])
-        : (data ?? []).filter((r) => r.quote?.salesperson_id === currentUserId);
-      setRows(filtered);
+      setLoading(false);
+      return;
     }
+
+    const quoteIds = [...new Set((docs ?? []).map((d) => d.quote_id).filter(Boolean))];
+    let quotesById = {};
+    if (quoteIds.length) {
+      const { data: quotes, error: qErr } = await supabase
+        .from('quotes')
+        .select('id, quote_number, customer_name, deal_number, salesperson_id, salesperson_name')
+        .in('id', quoteIds);
+      if (qErr) {
+        console.error('DocRequestsTab quotes load error:', qErr);
+      } else {
+        quotesById = Object.fromEntries((quotes ?? []).map((q) => [q.id, q]));
+      }
+    }
+
+    const merged = (docs ?? []).map((d) => ({ ...d, quote: quotesById[d.quote_id] || null }));
+
+    // Salesperson scope: only their own. Sales admins/managers/admins/F&I see all.
+    const filtered = isAllAccess
+      ? merged
+      : merged.filter((r) => r.quote?.salesperson_id === currentUserId);
+
+    setRows(filtered);
     setLoading(false);
   }
 
@@ -125,7 +135,7 @@ export default function DocRequestsTab({ currentUserId, role }) {
                     className="border-t border-gray-200 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg"
                   >
                     <td className="p-3 text-gray-900 dark:text-dark-text font-numeric">
-                      {quote?.deal_number ?? '—'}
+                      {quote?.deal_number ?? r.deal_number ?? '—'}
                     </td>
                     <td className="p-3">
                       {quote ? (
@@ -199,7 +209,6 @@ function FilterChip({ active, onClick, count, accent, children }) {
   );
 }
 
-// "How long has this been waiting on action?" — only meaningful for pending/incomplete
 function waitingDaysSince(r) {
   let anchor;
   if (r.status === 'pending') {
