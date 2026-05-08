@@ -4,6 +4,13 @@ import { supabase } from '../lib/supabase'
 import { useNavigate, useParams } from 'react-router-dom'
 import TTCHeader from '../components/TTCHeader'
 import ttcLogo from '../assets/ttc-logo.png'
+// ── Phase B additions ────────────────────────────────────────────────
+import QuoteActionBar from '../components/QuoteActionBar'
+import { QuoteStatusBadge } from '../components/StatusBadge'
+import LastEditedLine from '../components/LastEditedLine'
+import DocRequestPanel from '../components/DocRequestPanel'
+import { saveQuoteEdits } from '../lib/quoteActions'
+// ─────────────────────────────────────────────────────────────────────
 
 function calcPayment(price, down, tradeValue, tradePayoff, rate, months) {
   const amount = price - down - tradeValue + tradePayoff
@@ -29,6 +36,11 @@ export default function QuoteDetail() {
   const [saved, setSaved] = useState(false)
   const [commissionRate, setCommissionRate] = useState(25)
 
+  // Phase B: keep the full quote row for action bar + last-edited line
+  const [quote, setQuote] = useState(null)
+  // Phase B: doc request lives on existing quotes
+  const [docRequest, setDocRequest] = useState(null)
+
   const [form, setForm] = useState(null)
 
   const makes = ['Isuzu', 'Ford', 'Hino', 'Mitsubishi Fuso', 'UD Trucks', 'Other']
@@ -45,11 +57,24 @@ export default function QuoteDetail() {
   useEffect(() => {
     fetchQuote()
     fetchSettings()
+    fetchDocRequest()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   async function fetchSettings() {
     const { data } = await supabase.from('settings').select('*').eq('id', 'global').single()
     if (data) setCommissionRate(parseFloat(data.commission_rate) || 25)
+  }
+
+  async function fetchDocRequest() {
+    const { data } = await supabase
+      .from('doc_requests')
+      .select('*')
+      .eq('quote_id', id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    setDocRequest(data || null)
   }
 
   async function fetchQuote() {
@@ -58,6 +83,9 @@ export default function QuoteDetail() {
 
     const makeInList = makes.includes(data.make)
     const modelInList = data.make && models[data.make] ? models[data.make].includes(data.model) : false
+
+    // Phase B: hold the full row for the action bar / last-edited line
+    setQuote(data)
 
     setForm({
       customer_name: data.customer_name || '',
@@ -90,11 +118,12 @@ export default function QuoteDetail() {
       deal_number: data.deal_number || '',
       cost_of_vehicle: data.cost_of_vehicle || '',
       pack_amount: data.pack_amount || '500',
-      selected_incentives: [],
+      // Phase B: round-trip incentives properly (was hardcoded to [])
+      selected_incentives: Array.isArray(data.selected_incentives) ? data.selected_incentives : [],
       incentive_total: data.incentive_total || '0',
       notes: data.notes || '',
       docs_submitted: data.docs_submitted || 'No',
-      status: data.status || 'draft',
+      // Status is now read-only on the form — controlled by ActionBar
       quote_number: data.quote_number || '',
     })
     setLoading(false)
@@ -127,7 +156,9 @@ export default function QuoteDetail() {
   const grossProfit = selectedPrice - cost - pack - incentiveTotal
   const commission = grossProfit * (commissionRate / 100)
 
-  async function handleSave(newStatus) {
+  // Phase B: Save now goes through saveQuoteEdits() so last_edited_at + audit_log get written.
+  // Status transitions are no longer triggered here — use the ActionBar instead.
+  async function handleSave() {
     if (!form.customer_name) { setError('Customer name is required'); return }
     const finalMake = form.make === 'Other' ? form.make_other : form.make
     const finalModel = form.model === 'Other' ? form.model_other : form.model
@@ -135,7 +166,7 @@ export default function QuoteDetail() {
     if (!finalMake || !finalModel) { setError('Vehicle make and model are required'); return }
     setSaving(true); setError('')
 
-    const { error: err } = await supabase.from('quotes').update({
+    const patch = {
       customer_name: form.customer_name,
       customer_phone: form.customer_phone,
       customer_email: form.customer_email,
@@ -161,21 +192,25 @@ export default function QuoteDetail() {
       interest_rate: parseFloat(form.interest_rate) || 6.99,
       monthly_payment: payment,
       deal_type: form.deal_type,
-      deal_number: form.deal_number,
+      // Phase 5 fix: empty deal_number stored as null, not ''
+      deal_number: form.deal_number?.trim() || null,
       cost_of_vehicle: parseFloat(form.cost_of_vehicle) || null,
       pack_amount: parseFloat(form.pack_amount) || 500,
       gross_profit: grossProfit,
       commission: commission,
+      // Phase B: incentives are now saved
+      selected_incentives: form.selected_incentives,
       notes: form.notes,
       docs_submitted: form.docs_submitted,
-      status: newStatus || form.status,
-    }).eq('id', id)
+    }
+
+    const { data, error: err } = await saveQuoteEdits({ quoteId: id, patch, profile })
 
     setSaving(false)
     if (err) { setError(err.message); return }
+    if (data) setQuote(data)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
-    if (newStatus) navigate('/')
   }
 
   const inputClass = "w-full bg-white dark:bg-dark-bg text-gray-900 dark:text-dark-text rounded-lg px-3 py-2 border border-gray-300 dark:border-dark-border focus:outline-none focus:border-ttc-blue focus:ring-2 focus:ring-ttc-blue/20 text-sm transition-all"
@@ -185,7 +220,7 @@ export default function QuoteDetail() {
   const toggleUnselected = "bg-white dark:bg-dark-bg border-gray-300 dark:border-dark-border text-gray-700 dark:text-dark-text hover:border-gray-400 dark:hover:border-dark-muted"
 
   if (loading) return <div className="min-h-screen bg-gray-50 dark:bg-dark-bg flex items-center justify-center text-gray-500 dark:text-dark-muted">Loading...</div>
-  if (!form) return null
+  if (!form || !quote) return null
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-dark-bg text-gray-900 dark:text-dark-text">
@@ -198,24 +233,27 @@ export default function QuoteDetail() {
         onSignOut={signOut}
       />
 
-      {/* Action toolbar */}
+      {/* Action toolbar — top-right action bar replaces old Submit button */}
       <div className="bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border px-6 py-3">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/')} className="text-gray-500 dark:text-dark-muted hover:text-gray-900 dark:hover:text-dark-text text-sm">← Back</button>
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button onClick={() => navigate('/')} className="text-gray-500 dark:text-dark-muted hover:text-gray-900 dark:hover:text-dark-text text-sm whitespace-nowrap">← Back</button>
             <span className="text-gray-300 dark:text-dark-border">|</span>
-            <span className="text-gray-900 dark:text-dark-text font-semibold font-numeric">{form.quote_number}</span>
-            <StatusPill status={form.status} />
+            <span className="text-gray-900 dark:text-dark-text font-semibold font-numeric truncate">{form.quote_number}</span>
+            <QuoteStatusBadge quote={quote} />
           </div>
-          <div className="flex gap-3">
-            <button onClick={() => handleSave()} disabled={saving}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button onClick={handleSave} disabled={saving}
               className="bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg text-gray-700 dark:text-dark-text px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
               {saved ? '✓ Saved!' : 'Save'}
             </button>
-            <button onClick={() => handleSave('pending_approval')} disabled={saving}
-              className="bg-ttc-blue hover:bg-ttc-blue-dark text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
-              Submit for Approval
-            </button>
+            {/* Phase B: dynamic action buttons by role + status (Approve / Mark Delivered / Mark Lost / Archive / Unarchive) */}
+            <QuoteActionBar
+              quote={quote}
+              profile={profile}
+              onUpdated={(updated) => setQuote(updated)}
+              onError={(msg) => setError(msg)}
+            />
           </div>
         </div>
       </div>
@@ -227,21 +265,21 @@ export default function QuoteDetail() {
           </div>
         )}
 
-        {/* Status */}
+        {/* Phase B: Doc Request panel (Joe + salesperson actions) */}
+        <div className="mb-4">
+          <DocRequestPanel
+            doc={docRequest}
+            quote={quote}
+            profile={profile}
+            onUpdated={(updated) => setDocRequest(updated)}
+            onError={(msg) => setError(msg)}
+          />
+        </div>
+
+        {/* Quote # / Deal # — status dropdown removed (controlled by ActionBar now) */}
         <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Quote Status</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Deal Number</h2>
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelClass}>Status</label>
-              <select className={inputClass} value={form.status} onChange={e => set('status', e.target.value)}>
-                <option value="draft">Draft</option>
-                <option value="pending_approval">Pending Approval</option>
-                <option value="approved">Approved</option>
-                <option value="sent">Sent</option>
-                <option value="won">Sold</option>
-                <option value="lost">Lost</option>
-              </select>
-            </div>
             <div><label className={labelClass}>Deal #</label><input className={inputClass} value={form.deal_number} onChange={e => set('deal_number', e.target.value)} placeholder="D-00001" /></div>
           </div>
         </div>
@@ -431,31 +469,17 @@ export default function QuoteDetail() {
 
         <div className="flex justify-end gap-3 mt-6">
           <button onClick={() => navigate('/')} className="text-gray-500 dark:text-dark-muted hover:text-gray-900 dark:hover:text-dark-text px-4 py-2 text-sm transition-colors">Cancel</button>
-          <button onClick={() => handleSave()} disabled={saving}
+          <button onClick={handleSave} disabled={saving}
             className="bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg text-gray-700 dark:text-dark-text px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
             {saved ? '✓ Saved!' : 'Save'}
           </button>
-          <button onClick={() => handleSave('pending_approval')} disabled={saving}
-            className="bg-ttc-blue hover:bg-ttc-blue-dark text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
-            Submit for Approval
-          </button>
+        </div>
+
+        {/* Phase B: Last edited footer */}
+        <div className="mt-4 flex justify-end">
+          <LastEditedLine quote={quote} />
         </div>
       </div>
     </div>
   )
-}
-
-function StatusPill({ status }) {
-  const styles = {
-    won:              'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
-    sold:             'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
-    lost:             'bg-red-50    text-red-700   dark:bg-red-950/40   dark:text-red-300',
-    pending_approval: 'bg-amber-50  text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
-    approved:         'bg-green-50  text-green-700 dark:bg-green-950/40 dark:text-green-300',
-    sent:             'bg-blue-50   text-blue-700  dark:bg-blue-950/40  dark:text-blue-300',
-    draft:            'bg-gray-100  text-gray-700  dark:bg-gray-800     dark:text-gray-300',
-  }
-  const cls = styles[status] ?? 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
-  const label = status === 'won' ? 'Sold' : status === 'pending_approval' ? 'Pending' : (status ?? '—')
-  return <span className={`text-xs px-2 py-1 rounded-full font-medium ${cls}`}>{label}</span>
 }

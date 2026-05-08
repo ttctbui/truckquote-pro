@@ -4,6 +4,9 @@ import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import TTCHeader from '../components/TTCHeader'
 import ttcLogo from '../assets/ttc-logo.png'
+// ── Phase B additions ────────────────────────────────────────────────
+import { buildNewQuoteRow, logNewQuoteEvent } from '../lib/quoteActions'
+// ─────────────────────────────────────────────────────────────────────
 
 function calcPayment(price, down, tradeValue, tradePayoff, rate, months) {
   const amount = price - down - tradeValue + tradePayoff
@@ -29,7 +32,6 @@ export default function NewQuote() {
   const navigate = useNavigate()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [showDocRequest, setShowDocRequest] = useState(false)
 
   const [form, setForm] = useState({
     customer_name: '', customer_phone: '', customer_email: '', company_name: '',
@@ -50,44 +52,7 @@ export default function NewQuote() {
     docs_submitted: 'No',
   })
 
-  const [docRequest, setDocRequest] = useState({
-    salesperson: profile?.full_name || '',
-    salesperson2: '',
-    customer: '',
-    deal_type: 'Finance',
-    payment_type: 'Wire',
-    is_fleet: 'No',
-    fin_code: '',
-    hvip_incentive: 'No',
-    vin: '',
-    stock_number: '',
-    deal_number: '',
-    date_of_signing: '',
-    time_of_signing: '',
-    truck_mileage: '',
-    final_workbook_requested: 'No',
-    copy_of_license: 'No',
-    weight_class: 'GVWR',
-    gvwr: '',
-    weight_slip_requested: 'No',
-    customer_transferred_body: 'No',
-  })
-
   function set(field, value) { setForm(f => ({ ...f, [field]: value })) }
-  function setDoc(field, value) { setDocRequest(d => ({ ...d, [field]: value })) }
-
-  function openDocRequest() {
-    setDocRequest(d => ({
-      ...d,
-      customer: form.customer_name || d.customer,
-      deal_type: form.deal_type || d.deal_type,
-      vin: form.vin || d.vin,
-      stock_number: form.stock_number || d.stock_number,
-      deal_number: form.deal_number || d.deal_number,
-      salesperson: profile?.full_name || d.salesperson,
-    }))
-    setShowDocRequest(true)
-  }
 
   function toggleIncentive(incentive) {
     setForm(f => ({
@@ -125,7 +90,14 @@ export default function NewQuote() {
   }
   const bodyStyles = ['Cab & Chassis', 'Box Truck', 'Flatbed', 'Dump', 'Stake', 'Refrigerated', 'Service Body', 'Crane/Boom', 'Other']
 
-  async function handleSave(submitForApproval = false) {
+  // Phase B:
+  //   - Sales admins / managers get auto-approved at creation (status='approved' + approved_at/by)
+  //   - Salespeople still go to pending_approval
+  //   - salesperson_id auto-populated from profile.id
+  //   - selected_incentives now actually saved
+  //   - empty deal_number stored as null, not ''
+  //   - draft is gone — Phase A locked the enum to v2 only
+  async function handleSave() {
     if (!form.customer_name) { setError('Customer name is required'); return }
     const finalMake = form.make === 'Other' ? form.make_other : form.make
     const finalModel = form.model === 'Other' ? form.model_other : form.model
@@ -133,9 +105,8 @@ export default function NewQuote() {
     if (!finalMake || !finalModel) { setError('Vehicle make and model are required'); return }
     setSaving(true); setError('')
 
-    const { error: err } = await supabase.from('quotes').insert({
+    const rawRow = {
       quote_number: genQuoteNumber(),
-      status: submitForApproval ? 'pending_approval' : 'draft',
       customer_name: form.customer_name,
       customer_phone: form.customer_phone,
       customer_email: form.customer_email,
@@ -161,48 +132,37 @@ export default function NewQuote() {
       interest_rate: parseFloat(form.interest_rate) || 6.99,
       monthly_payment: payment,
       deal_type: form.deal_type,
-      deal_number: form.deal_number,
+      // Phase 5 fix: empty deal_number → null
+      deal_number: form.deal_number?.trim() || null,
       cost_of_vehicle: parseFloat(form.cost_of_vehicle) || null,
       pack_amount: parseFloat(form.pack_amount) || 500,
       gross_profit: grossProfit,
       commission: commission,
+      // Phase B: incentives now persisted
+      selected_incentives: form.selected_incentives,
       notes: form.notes,
       docs_submitted: form.docs_submitted,
-      salesperson_id: profile?.id,
-    })
+      // salesperson_id will be filled in by buildNewQuoteRow if not set
+    }
+
+    // Phase B: helper sets status (auto-approve for sales_admin/manager/admin),
+    // stamps salesperson_id, last_edited_at/by, and (when auto-approving) approved_at/by.
+    const { row, autoApproved } = buildNewQuoteRow(rawRow, profile)
+
+    const { data: newQuote, error: err } = await supabase
+      .from('quotes')
+      .insert(row)
+      .select()
+      .single()
 
     setSaving(false)
     if (err) { setError(err.message); return }
-    navigate('/')
-  }
 
-  async function submitDocRequest() {
-    const { error: err } = await supabase.from('doc_requests').insert({
-      salesperson: docRequest.salesperson,
-      salesperson2: docRequest.salesperson2,
-      customer: docRequest.customer,
-      deal_type: docRequest.deal_type,
-      payment_type: docRequest.payment_type,
-      is_fleet: docRequest.is_fleet,
-      fin_code: docRequest.fin_code,
-      hvip_incentive: docRequest.hvip_incentive,
-      vin: docRequest.vin,
-      stock_number: docRequest.stock_number,
-      deal_number: docRequest.deal_number,
-      date_of_signing: docRequest.date_of_signing || null,
-      time_of_signing: docRequest.time_of_signing,
-      truck_mileage: docRequest.truck_mileage,
-      final_workbook_requested: docRequest.final_workbook_requested,
-      copy_of_license: docRequest.copy_of_license,
-      weight_class: docRequest.weight_class,
-      gvwr: docRequest.gvwr,
-      weight_slip_requested: docRequest.weight_slip_requested,
-      customer_transferred_body: docRequest.customer_transferred_body,
-      status: 'submitted',
-    })
-    if (err) { alert('Error: ' + err.message); return }
-    setShowDocRequest(false)
-    alert('Doc Request submitted! Joe De La Rosa has been notified.')
+    // Audit-log the auto-approve event (regular create event comes from existing trigger)
+    await logNewQuoteEvent({ quoteId: newQuote.id, autoApproved, profile })
+
+    // Jump straight into the new quote so the user can see status, edit, request docs, etc.
+    navigate(`/quote/${newQuote.id}`)
   }
 
   const inputClass = "w-full bg-white dark:bg-dark-bg text-gray-900 dark:text-dark-text rounded-lg px-3 py-2 border border-gray-300 dark:border-dark-border focus:outline-none focus:border-ttc-blue focus:ring-2 focus:ring-ttc-blue/20 text-sm transition-all"
@@ -210,6 +170,10 @@ export default function NewQuote() {
   const sectionClass = "bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-xl p-5 mb-4 shadow-ttc-card"
   const toggleSelected = "bg-ttc-blue border-ttc-blue text-white"
   const toggleUnselected = "bg-white dark:bg-dark-bg border-gray-300 dark:border-dark-border text-gray-700 dark:text-dark-text hover:border-gray-400 dark:hover:border-dark-muted"
+
+  // Phase B: button label adapts to whether this user will auto-approve
+  const isAutoApprover = ['sales_admin', 'manager', 'admin'].includes(profile?.role)
+  const submitLabel = isAutoApprover ? 'Save & Approve' : 'Submit for Approval'
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-dark-bg text-gray-900 dark:text-dark-text">
@@ -222,7 +186,7 @@ export default function NewQuote() {
         onSignOut={signOut}
       />
 
-      {/* Action toolbar */}
+      {/* Action toolbar — Doc Request button removed (lives on QuoteDetail now) */}
       <div className="bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border px-6 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -232,24 +196,11 @@ export default function NewQuote() {
           </div>
           <div className="flex gap-3">
             <button
-              onClick={openDocRequest}
-              className="bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg text-gray-700 dark:text-dark-text px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-            >
-              Doc Request
-            </button>
-            <button
-              onClick={() => handleSave(false)}
-              disabled={saving}
-              className="bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg text-gray-700 dark:text-dark-text px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
-            >
-              Save Draft
-            </button>
-            <button
-              onClick={() => handleSave(true)}
+              onClick={handleSave}
               disabled={saving}
               className="bg-ttc-blue hover:bg-ttc-blue-dark text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
             >
-              Submit for Approval
+              {saving ? 'Saving…' : submitLabel}
             </button>
           </div>
         </div>
@@ -259,6 +210,13 @@ export default function NewQuote() {
         {error && (
           <div className="mb-4 text-stat-red text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg px-4 py-2">
             {error}
+          </div>
+        )}
+
+        {/* Phase B: heads-up for auto-approvers so it's not a surprise */}
+        {isAutoApprover && (
+          <div className="mb-4 text-sm bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-blue-800 dark:text-blue-300 rounded-lg px-4 py-2">
+            As a {profile.role.replace('_', ' ')}, your quotes are auto-approved on save.
           </div>
         )}
 
@@ -448,98 +406,11 @@ export default function NewQuote() {
 
         <div className="flex justify-end gap-3 mt-6">
           <button onClick={() => navigate('/')} className="text-gray-500 dark:text-dark-muted hover:text-gray-900 dark:hover:text-dark-text px-4 py-2 text-sm transition-colors">Cancel</button>
-          <button onClick={() => handleSave(false)} disabled={saving}
-            className="bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg text-gray-700 dark:text-dark-text px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
-            Save Draft
-          </button>
-          <button onClick={() => handleSave(true)} disabled={saving}
+          <button onClick={handleSave} disabled={saving}
             className="bg-ttc-blue hover:bg-ttc-blue-dark text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
-            Submit for Approval
+            {saving ? 'Saving…' : submitLabel}
           </button>
         </div>
-      </div>
-
-      {/* Doc Request Modal */}
-      {showDocRequest && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-xl p-6 w-full max-w-lg shadow-2xl my-8">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-gray-900 dark:text-dark-text font-semibold text-lg">Doc Request</h2>
-              <button onClick={() => setShowDocRequest(false)} className="text-gray-400 hover:text-gray-600 dark:text-dark-muted dark:hover:text-dark-text text-xl">✕</button>
-            </div>
-
-            <div className="space-y-4">
-              <div><label className={labelClass}>Salesperson</label><input className={inputClass} value={docRequest.salesperson} onChange={e => setDoc('salesperson', e.target.value)} /></div>
-              <div><label className={labelClass}>Salesperson #2 (split deal)</label><input className={inputClass} value={docRequest.salesperson2} onChange={e => setDoc('salesperson2', e.target.value)} placeholder="Optional" /></div>
-              <div><label className={labelClass}>Customer</label><input className={inputClass} value={docRequest.customer} onChange={e => setDoc('customer', e.target.value)} /></div>
-
-              <YesNoToggle label="Deal Type" options={['Finance', 'Cash']} value={docRequest.deal_type} onChange={v => setDoc('deal_type', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
-
-              <div>
-                <label className={labelClass}>Payment Type</label>
-                <select className={inputClass} value={docRequest.payment_type} onChange={e => setDoc('payment_type', e.target.value)}>
-                  {['Wire', 'Check', 'ACH'].map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-
-              <YesNoToggle label="Is this a Fleet deal?" options={['Yes', 'No']} value={docRequest.is_fleet} onChange={v => setDoc('is_fleet', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
-
-              {docRequest.is_fleet === 'Yes' && (
-                <div><label className={labelClass}>FIN Code</label><input className={inputClass} value={docRequest.fin_code} onChange={e => setDoc('fin_code', e.target.value)} placeholder="Enter FIN code" /></div>
-              )}
-
-              <YesNoToggle label="Is there an HVIP incentive with this vehicle?" options={['Yes', 'No']} value={docRequest.hvip_incentive} onChange={v => setDoc('hvip_incentive', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
-
-              <div><label className={labelClass}>VIN #</label><input className={inputClass} value={docRequest.vin} onChange={e => setDoc('vin', e.target.value)} /></div>
-              <div><label className={labelClass}>Stock #</label><input className={inputClass} value={docRequest.stock_number} onChange={e => setDoc('stock_number', e.target.value)} /></div>
-              <div><label className={labelClass}>Deal #</label><input className={inputClass} value={docRequest.deal_number} onChange={e => setDoc('deal_number', e.target.value)} /></div>
-              <div><label className={labelClass}>Date of Signing</label><input type="date" className={inputClass} value={docRequest.date_of_signing} onChange={e => setDoc('date_of_signing', e.target.value)} /></div>
-              <div><label className={labelClass}>Time of Signing</label><input type="time" className={inputClass} value={docRequest.time_of_signing} onChange={e => setDoc('time_of_signing', e.target.value)} /></div>
-              <div><label className={labelClass}>Truck Mileage</label><input className={inputClass} value={docRequest.truck_mileage} onChange={e => setDoc('truck_mileage', e.target.value)} placeholder="0" /></div>
-
-              <YesNoToggle label="Final Workbook & Docs from deal # request?" options={['Yes', 'No']} value={docRequest.final_workbook_requested} onChange={v => setDoc('final_workbook_requested', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
-              <YesNoToggle label="Copy of Driver's License?" options={['Yes', 'No']} value={docRequest.copy_of_license} onChange={v => setDoc('copy_of_license', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
-              <YesNoToggle label="Select One" options={['GVWR', 'CGWR']} value={docRequest.weight_class} onChange={v => setDoc('weight_class', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
-
-              <div><label className={labelClass}>GVWR</label><input className={inputClass} value={docRequest.gvwr} onChange={e => setDoc('gvwr', e.target.value)} placeholder="e.g. 26,000 lbs" /></div>
-
-              <YesNoToggle label="Weight Slip Requested?" options={['Yes', 'No']} value={docRequest.weight_slip_requested} onChange={v => setDoc('weight_slip_requested', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
-              <YesNoToggle label="Did customer transfer their own body?" options={['Yes', 'No']} value={docRequest.customer_transferred_body} onChange={v => setDoc('customer_transferred_body', v)} labelClass={labelClass} sel={toggleSelected} unsel={toggleUnselected} />
-
-              <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-lg p-3 text-xs text-blue-700 dark:text-blue-300">
-                File uploads (Final Workbook, Signed Recap, Buyers Order, Driver's License, Proof of Insurance, Weight Slip, VIN Verification) will be available in the next update.
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => setShowDocRequest(false)}
-                className="flex-1 bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg text-gray-700 dark:text-dark-text py-2 rounded-lg text-sm font-semibold transition-colors">
-                Cancel
-              </button>
-              <button onClick={submitDocRequest}
-                className="flex-1 bg-ttc-blue hover:bg-ttc-blue-dark text-white py-2 rounded-lg text-sm font-semibold transition-colors">
-                Submit to F&I
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Reusable Yes/No (or two-option) toggle for the doc request modal
-function YesNoToggle({ label, options, value, onChange, labelClass, sel, unsel }) {
-  return (
-    <div>
-      <label className={labelClass}>{label}</label>
-      <div className="flex gap-2">
-        {options.map(v => (
-          <button key={v} onClick={() => onChange(v)}
-            className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${value === v ? sel : unsel}`}>
-            {v}
-          </button>
-        ))}
       </div>
     </div>
   )
