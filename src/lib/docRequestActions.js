@@ -5,10 +5,10 @@
 //   pending     →  ready (Joe; terminal)
 //
 // Phase D: emails Joe when a NEW doc request is submitted.
-// Other doc-request events (incomplete, update_requested, ready) are wired
-// in drop 3.
+// Other doc-request events wired in drop 3.
 
 import { supabase } from './supabase';
+import { logAuditEvent } from './audit';
 import {
   canMarkDocIncomplete,
   canMarkDocReady,
@@ -17,16 +17,6 @@ import {
 } from './permissions';
 import { sendNotification, readSecret } from './notify';
 import { docRequestNew } from './email_templates';
-
-async function logDocEvent(docId, quoteId, event, actorId, meta = null) {
-  const { error } = await supabase.from('audit_log').insert({
-    quote_id: quoteId,
-    event,
-    actor_id: actorId,
-    meta: { ...(meta || {}), doc_request_id: docId },
-  });
-  if (error) console.error('audit_log insert failed:', event, error);
-}
 
 async function getBaseUrl() {
   const fromSecret = await readSecret('app_base_url');
@@ -38,12 +28,11 @@ async function getBaseUrl() {
 }
 
 /**
- * Phase D — call this AFTER the doc_request row has been inserted.
+ * Phase D — call AFTER the doc_request row has been inserted.
  * Reads the configured Joe-recipients from tqp_secrets so admins can
  * change who gets these emails without code deploys.
  */
 export async function notifyDocRequestSubmitted({ doc, quote, profile }) {
-  // Recipients: editable in tqp_secrets (so when Joe is on PTO, IT can swap)
   const csv = await readSecret('doc_request_recipients');
   const emails = (csv || '')
     .split(',')
@@ -63,7 +52,6 @@ export async function notifyDocRequestSubmitted({ doc, quote, profile }) {
     baseUrl,
   });
 
-  // Look up f_and_i users for in-app notifications too
   const { data: fAndIUsers } = await supabase
     .from('profiles')
     .select('id')
@@ -114,7 +102,13 @@ export async function markDocIncomplete({ doc, profile, reason }) {
 
   if (error) return { data: null, error };
 
-  await logDocEvent(doc.id, doc.quote_id, 'doc_request_marked_incomplete', profile.id, { reason });
+  await logAuditEvent({
+    tableName: 'doc_requests',
+    recordId: doc.id,
+    action: 'doc_request_marked_incomplete',
+    context: { reason, quote_id: doc.quote_id },
+  });
+
   // TODO: Phase D drop 3 — email salesperson "Joe needs more info: <reason>"
   return { data, error: null };
 }
@@ -140,7 +134,13 @@ export async function markDocReady({ doc, profile }) {
 
   if (error) return { data: null, error };
 
-  await logDocEvent(doc.id, doc.quote_id, 'doc_request_marked_ready', profile.id);
+  await logAuditEvent({
+    tableName: 'doc_requests',
+    recordId: doc.id,
+    action: 'doc_request_marked_ready',
+    context: { quote_id: doc.quote_id },
+  });
+
   // TODO: Phase D drop 3 — email salesperson "your docs are ready"
   return { data, error: null };
 }
@@ -168,7 +168,13 @@ export async function requestDocUpdate({ doc, quote, profile }) {
 
   if (error) return { data: null, error };
 
-  await logDocEvent(doc.id, doc.quote_id, 'doc_request_update_requested', profile.id);
+  await logAuditEvent({
+    tableName: 'doc_requests',
+    recordId: doc.id,
+    action: 'doc_request_update_requested',
+    context: { quote_id: doc.quote_id },
+  });
+
   // TODO: Phase D drop 3 — email Joe "salesperson responded, please re-review"
   return { data, error: null };
 }
@@ -193,6 +199,12 @@ export async function reopenDocAsJoe({ doc, profile }) {
 
   if (error) return { data: null, error };
 
-  await logDocEvent(doc.id, doc.quote_id, 'doc_request_reopened_by_joe', profile.id);
+  await logAuditEvent({
+    tableName: 'doc_requests',
+    recordId: doc.id,
+    action: 'doc_request_reopened_by_joe',
+    context: { quote_id: doc.quote_id },
+  });
+
   return { data, error: null };
 }

@@ -3,12 +3,11 @@
 // All quote state transitions live here. Each function:
 //   1. Re-checks permission (UI hides buttons, RLS enforces, this is middle layer)
 //   2. Writes status + timestamp/actor columns in one update
-//   3. Writes an audit_log row
+//   3. Writes an audit_log entry via the existing logAuditEvent helper
 //   4. Fires Phase D notifications (email + in-app) — best effort, never blocks
-//
-// All functions return { data, error } to match the supabase pattern.
 
 import { supabase } from './supabase';
+import { logAuditEvent } from './audit';
 import {
   canApprove,
   canMarkDelivered,
@@ -20,7 +19,6 @@ import {
 import {
   sendNotification,
   emailsForRoles,
-  resolveEmails,
   readSecret,
 } from './notify';
 import {
@@ -28,19 +26,8 @@ import {
   quoteApproved,
 } from './email_templates';
 
-// --- internal -----------------------------------------------------------
+// --- internal helpers ---------------------------------------------------
 
-async function logEvent(quoteId, event, actorId, meta = null) {
-  const { error } = await supabase.from('audit_log').insert({
-    quote_id: quoteId,
-    event,
-    actor_id: actorId,
-    meta,
-  });
-  if (error) console.error('audit_log insert failed:', event, error);
-}
-
-// Try to read the configured app base URL; fall back to current origin.
 async function getBaseUrl() {
   const fromSecret = await readSecret('app_base_url');
   if (fromSecret) return fromSecret.replace(/\/+$/, '');
@@ -85,11 +72,12 @@ export async function approveQuote({ quote, profile }) {
 
   if (error) return { data: null, error };
 
-  await logEvent(
-    quote.id,
-    isSelf ? 'quote_self_approved' : 'quote_approved',
-    profile.id,
-  );
+  await logAuditEvent({
+    tableName: 'quotes',
+    recordId: quote.id,
+    action: isSelf ? 'quote_self_approved' : 'quote_approved',
+    context: { quote_number: data.quote_number, customer: data.customer_name },
+  });
 
   // 📨 Phase D: notify the salesperson — but skip if they approved their own quote
   if (!isSelf && data?.salesperson_id) {
@@ -102,7 +90,6 @@ export async function approveQuote({ quote, profile }) {
         approverName: profile.full_name || profile.email,
         baseUrl,
       });
-      // fire-and-forget
       sendNotification({
         template: 'quote_approved',
         to: [salespersonEmail],
@@ -127,15 +114,11 @@ export async function approveQuote({ quote, profile }) {
 
 // --- create with auto-approve check ------------------------------------
 
-/**
- * Wrap your existing NewQuote insert with this. Pass the row you'd otherwise
- * insert; we'll set status correctly and add timestamps if auto-approving.
- */
 export function buildNewQuoteRow(rawRow, profile) {
   const now = new Date().toISOString();
   const base = {
     ...rawRow,
-    salesperson_id: rawRow.salesperson_id || profile.id, // Phase 5 fix
+    salesperson_id: rawRow.salesperson_id || profile.id,
     last_edited_at: now,
     last_edited_by: profile.id,
   };
@@ -158,19 +141,23 @@ export function buildNewQuoteRow(rawRow, profile) {
   };
 }
 
-/**
- * Call AFTER the insert succeeds. Writes the audit event AND fires
- * the "needs approval" email to sales admins + managers (only if not auto-approved).
- */
 export async function logNewQuoteEvent({ quoteId, autoApproved, profile, quote }) {
   if (autoApproved) {
-    await logEvent(quoteId, 'quote_self_approved', profile.id, {
-      reason: 'sales_admin_auto_approve_on_create',
+    await logAuditEvent({
+      tableName: 'quotes',
+      recordId: quoteId,
+      action: 'quote_self_approved',
+      context: { reason: 'sales_admin_auto_approve_on_create' },
     });
-    return; // nobody else needs to know — sales admin approved their own
+    return; // sales admin approved their own — nobody else needs to know
   }
 
-  await logEvent(quoteId, 'quote_submitted_for_approval', profile.id);
+  await logAuditEvent({
+    tableName: 'quotes',
+    recordId: quoteId,
+    action: 'quote_submitted_for_approval',
+    context: { submitter_id: profile.id },
+  });
 
   // 📨 Phase D: tell sales admins + managers + admins to come look
   const baseUrl = await getBaseUrl();
@@ -193,7 +180,7 @@ export async function logNewQuoteEvent({ quoteId, autoApproved, profile, quote }
   });
 
   const notifications = userIds
-    .filter((id) => id !== profile.id) // don't ping yourself if you somehow qualify
+    .filter((id) => id !== profile.id)
     .map((id) => ({
       user_id: id,
       kind: 'quote_approval_needed',
@@ -244,13 +231,17 @@ export async function markDelivered({ quote, profile }) {
 
   if (error) return { data: null, error };
 
-  await logEvent(quote.id, 'quote_marked_delivered', profile.id);
-  // No notification: it's a self-action celebration, not actionable for others.
+  await logAuditEvent({
+    tableName: 'quotes',
+    recordId: quote.id,
+    action: 'quote_marked_delivered',
+    context: { quote_number: data.quote_number },
+  });
 
   return { data, error: null };
 }
 
-// --- mark lost (7-day window, NO immediate archive) --------------------
+// --- mark lost ---------------------------------------------------------
 
 export async function markLost({ quote, profile, reason = null }) {
   if (!canMarkLost(profile, quote)) {
@@ -273,13 +264,17 @@ export async function markLost({ quote, profile, reason = null }) {
 
   if (error) return { data: null, error };
 
-  await logEvent(quote.id, 'quote_marked_lost', profile.id, reason ? { reason } : null);
-  // No notification — pg_cron sweeps to archive after 7 days, no email needed.
+  await logAuditEvent({
+    tableName: 'quotes',
+    recordId: quote.id,
+    action: 'quote_marked_lost',
+    context: { quote_number: data.quote_number, reason },
+  });
 
   return { data, error: null };
 }
 
-// --- manual archive (manager-only escape hatch) ------------------------
+// --- manual archive ---------------------------------------------------
 
 export async function archiveManual({ quote, profile, reason }) {
   if (!canArchiveManual(profile, quote)) {
@@ -300,11 +295,18 @@ export async function archiveManual({ quote, profile, reason }) {
     .single();
 
   if (error) return { data: null, error };
-  await logEvent(quote.id, 'quote_archived_manual', profile.id, { reason });
+
+  await logAuditEvent({
+    tableName: 'quotes',
+    recordId: quote.id,
+    action: 'quote_archived_manual',
+    context: { reason, quote_number: data.quote_number },
+  });
+
   return { data, error: null };
 }
 
-// --- unarchive (oops button) -------------------------------------------
+// --- unarchive ---------------------------------------------------------
 
 export async function unarchive({ quote, profile }) {
   if (!canUnarchive(profile, quote)) {
@@ -332,11 +334,18 @@ export async function unarchive({ quote, profile }) {
     .single();
 
   if (error) return { data: null, error };
-  await logEvent(quote.id, 'quote_unarchived', profile.id, { restored_to: restored });
+
+  await logAuditEvent({
+    tableName: 'quotes',
+    recordId: quote.id,
+    action: 'quote_unarchived',
+    context: { restored_to: restored, quote_number: data.quote_number },
+  });
+
   return { data, error: null };
 }
 
-// --- generic save w/ last_edited tracking -------------------------------
+// --- generic save w/ last_edited tracking ------------------------------
 
 export async function saveQuoteEdits({ quoteId, patch, profile }) {
   const now = new Date().toISOString();
@@ -348,6 +357,13 @@ export async function saveQuoteEdits({ quoteId, patch, profile }) {
     .single();
 
   if (error) return { data: null, error };
-  await logEvent(quoteId, 'quote_edited', profile.id);
+
+  await logAuditEvent({
+    tableName: 'quotes',
+    recordId: quoteId,
+    action: 'quote_edited',
+    context: { fields_changed: Object.keys(patch) },
+  });
+
   return { data, error: null };
 }
