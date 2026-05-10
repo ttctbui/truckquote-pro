@@ -3,6 +3,7 @@
 // Editable table for vendor add-ons / fees per quote.
 // - Dynamic add/remove rows
 // - Auto-totals at the bottom
+// - Negative values rendered in red (vendor credits, rebates, cost-back)
 // - Two modes: 'controlled' (parent owns state, used in NewQuote)
 //              and 'persistent' (writes directly to quote_installs, used in QuoteDetail)
 //
@@ -151,7 +152,23 @@ export default function LocalInstallsTable({
 
   const inputBase =
     'w-full bg-white dark:bg-dark-bg text-gray-900 dark:text-dark-text rounded px-2 py-1 text-sm border border-gray-300 dark:border-dark-border focus:outline-none focus:border-ttc-blue focus:ring-1 focus:ring-ttc-blue/30';
-  const numericInput = `${inputBase} font-numeric text-right`;
+
+  // For numeric fields: tint text red when value is negative
+  const numericInput = (val) => {
+    const n = parseFloat(val);
+    const isNeg = Number.isFinite(n) && n < 0;
+    return `${inputBase} font-numeric text-right ${isNeg ? 'text-stat-red dark:text-red-400' : ''}`;
+  };
+
+  // For total cells in the footer
+  const totalClass = (val) => {
+    const isNeg = val < 0;
+    return `p-2 text-right font-numeric ${
+      isNeg
+        ? 'text-stat-red dark:text-red-400'
+        : 'text-gray-900 dark:text-dark-text'
+    }`;
+  };
 
   // --- render -----------------------------------------------------------
 
@@ -231,7 +248,7 @@ export default function LocalInstallsTable({
                   </td>
                   <td className="p-2">
                     <input
-                      className={numericInput}
+                      className={numericInput(r.dnp_amount)}
                       value={r.dnp_amount ?? ''}
                       onChange={(e) => updateField(r.id, 'dnp_amount', e.target.value)}
                       onBlur={() => saveRow(r.id)}
@@ -241,7 +258,7 @@ export default function LocalInstallsTable({
                   </td>
                   <td className="p-2">
                     <input
-                      className={numericInput}
+                      className={numericInput(r.markup_amount)}
                       value={r.markup_amount ?? ''}
                       onChange={(e) => updateField(r.id, 'markup_amount', e.target.value)}
                       onBlur={() => saveRow(r.id)}
@@ -251,7 +268,7 @@ export default function LocalInstallsTable({
                   </td>
                   <td className="p-2">
                     <input
-                      className={numericInput}
+                      className={numericInput(r.customer_total)}
                       value={r.customer_total ?? ''}
                       onChange={(e) => updateField(r.id, 'customer_total', e.target.value)}
                       onBlur={() => saveRow(r.id)}
@@ -278,15 +295,9 @@ export default function LocalInstallsTable({
                 <td colSpan={4} className="p-2 text-right text-gray-600 dark:text-dark-muted text-xs uppercase tracking-wider">
                   Totals
                 </td>
-                <td className="p-2 text-right font-numeric text-gray-900 dark:text-dark-text">
-                  {fmt(totals.dnp)}
-                </td>
-                <td className="p-2 text-right font-numeric text-gray-900 dark:text-dark-text">
-                  {fmt(totals.markup)}
-                </td>
-                <td className="p-2 text-right font-numeric text-gray-900 dark:text-dark-text">
-                  {fmt(totals.customer)}
-                </td>
+                <td className={totalClass(totals.dnp)}>{fmt(totals.dnp)}</td>
+                <td className={totalClass(totals.markup)}>{fmt(totals.markup)}</td>
+                <td className={totalClass(totals.customer)}>{fmt(totals.customer)}</td>
                 {!readOnly && <td></td>}
               </tr>
             </tfoot>
@@ -305,5 +316,10 @@ function numOrNull(v) {
 
 function fmt(n) {
   if (!n) return '$0.00';
-  return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const abs = Math.abs(n);
+  const formatted = `$${abs.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+  return n < 0 ? `-${formatted}` : formatted;
 }
