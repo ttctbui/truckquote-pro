@@ -10,6 +10,8 @@ import { QuoteStatusBadge } from '../components/StatusBadge'
 import LastEditedLine from '../components/LastEditedLine'
 import DocRequestPanel from '../components/DocRequestPanel'
 import { saveQuoteEdits } from '../lib/quoteActions'
+// ── Feature A: Local Installations ───────────────────────────────────
+import LocalInstallsTable from '../components/LocalInstallsTable'
 // ─────────────────────────────────────────────────────────────────────
 
 function calcPayment(price, down, tradeValue, tradePayoff, rate, months) {
@@ -84,7 +86,6 @@ export default function QuoteDetail() {
     const makeInList = makes.includes(data.make)
     const modelInList = data.make && models[data.make] ? models[data.make].includes(data.model) : false
 
-    // Phase B: hold the full row for the action bar / last-edited line
     setQuote(data)
 
     setForm({
@@ -118,12 +119,10 @@ export default function QuoteDetail() {
       deal_number: data.deal_number || '',
       cost_of_vehicle: data.cost_of_vehicle || '',
       pack_amount: data.pack_amount || '500',
-      // Phase B: round-trip incentives properly (was hardcoded to [])
       selected_incentives: Array.isArray(data.selected_incentives) ? data.selected_incentives : [],
       incentive_total: data.incentive_total || '0',
       notes: data.notes || '',
       docs_submitted: data.docs_submitted || 'No',
-      // Status is now read-only on the form — controlled by ActionBar
       quote_number: data.quote_number || '',
     })
     setLoading(false)
@@ -153,11 +152,10 @@ export default function QuoteDetail() {
   const cost = form ? parseFloat(form.cost_of_vehicle) || 0 : 0
   const pack = form ? parseFloat(form.pack_amount) || 0 : 0
   const incentiveTotal = form ? parseFloat(form.incentive_total) || 0 : 0
+  // Feature A: GP unchanged for now — pending management decision on how installs affect GP
   const grossProfit = selectedPrice - cost - pack - incentiveTotal
   const commission = grossProfit * (commissionRate / 100)
 
-  // Phase B: Save now goes through saveQuoteEdits() so last_edited_at + audit_log get written.
-  // Status transitions are no longer triggered here — use the ActionBar instead.
   async function handleSave() {
     if (!form.customer_name) { setError('Customer name is required'); return }
     const finalMake = form.make === 'Other' ? form.make_other : form.make
@@ -192,13 +190,11 @@ export default function QuoteDetail() {
       interest_rate: parseFloat(form.interest_rate) || 6.99,
       monthly_payment: payment,
       deal_type: form.deal_type,
-      // Phase 5 fix: empty deal_number stored as null, not ''
       deal_number: form.deal_number?.trim() || null,
       cost_of_vehicle: parseFloat(form.cost_of_vehicle) || null,
       pack_amount: parseFloat(form.pack_amount) || 500,
       gross_profit: grossProfit,
       commission: commission,
-      // Phase B: incentives are now saved
       selected_incentives: form.selected_incentives,
       notes: form.notes,
       docs_submitted: form.docs_submitted,
@@ -233,7 +229,7 @@ export default function QuoteDetail() {
         onSignOut={signOut}
       />
 
-      {/* Action toolbar — top-right action bar replaces old Submit button */}
+      {/* Action toolbar */}
       <div className="bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border px-6 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -247,7 +243,6 @@ export default function QuoteDetail() {
               className="bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-bg text-gray-700 dark:text-dark-text px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
               {saved ? '✓ Saved!' : 'Save'}
             </button>
-            {/* Phase B: dynamic action buttons by role + status (Approve / Mark Delivered / Mark Lost / Archive / Unarchive) */}
             <QuoteActionBar
               quote={quote}
               profile={profile}
@@ -265,7 +260,7 @@ export default function QuoteDetail() {
           </div>
         )}
 
-        {/* Phase B: Doc Request panel (Joe + salesperson actions) */}
+        {/* Phase B: Doc Request panel */}
         <div className="mb-4">
           <DocRequestPanel
             doc={docRequest}
@@ -276,7 +271,7 @@ export default function QuoteDetail() {
           />
         </div>
 
-        {/* Quote # / Deal # — status dropdown removed (controlled by ActionBar now) */}
+        {/* Deal Number */}
         <div className={sectionClass}>
           <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Deal Number</h2>
           <div className="grid grid-cols-2 gap-4">
@@ -464,6 +459,11 @@ export default function QuoteDetail() {
           <div className="mt-4">
             <label className={labelClass}>Notes</label>
             <textarea className={inputClass} rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} />
+          </div>
+
+          {/* Feature A: Local Installations — auto-saves to quote_installs table on blur */}
+          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-dark-border">
+            <LocalInstallsTable quoteId={id} />
           </div>
         </div>
 
