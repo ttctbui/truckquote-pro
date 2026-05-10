@@ -6,6 +6,8 @@ import TTCHeader from '../components/TTCHeader'
 import ttcLogo from '../assets/ttc-logo.png'
 // ── Phase B additions ────────────────────────────────────────────────
 import { buildNewQuoteRow, logNewQuoteEvent } from '../lib/quoteActions'
+// ── Feature A: Local Installations ───────────────────────────────────
+import LocalInstallsTable from '../components/LocalInstallsTable'
 // ─────────────────────────────────────────────────────────────────────
 
 function calcPayment(price, down, tradeValue, tradePayoff, rate, months) {
@@ -52,6 +54,9 @@ export default function NewQuote() {
     docs_submitted: 'No',
   })
 
+  // Feature A: staged installs (controlled mode — bulk-inserted after quote saves)
+  const [installs, setInstalls] = useState([])
+
   function set(field, value) { setForm(f => ({ ...f, [field]: value })) }
 
   function toggleIncentive(incentive) {
@@ -76,6 +81,7 @@ export default function NewQuote() {
   const cost = parseFloat(form.cost_of_vehicle) || 0
   const pack = parseFloat(form.pack_amount) || 0
   const incentiveTotal = parseFloat(form.incentive_total) || 0
+  // Feature A: GP unchanged for now — pending management decision
   const grossProfit = selectedPrice - cost - pack - incentiveTotal
   const commission = grossProfit * 0.25
 
@@ -92,10 +98,10 @@ export default function NewQuote() {
 
   // Phase B + D:
   //   - Sales admins / managers get auto-approved at creation
-  //   - Salespeople still go to pending_approval — this is what fires the
-  //     "needs approval" email to sales admins
-  //   - Phase D: pass the full quote into logNewQuoteEvent so the email
-  //     template doesn't need to re-fetch
+  //   - Salespeople still go to pending_approval — fires "needs approval" email
+  //   - Phase D: pass full quote into logNewQuoteEvent so email template has data
+  // Feature A:
+  //   - After quote insert succeeds, bulk-insert any installs the user filled in
   async function handleSave() {
     if (!form.customer_name) { setError('Customer name is required'); return }
     const finalMake = form.make === 'Other' ? form.make_other : form.make
@@ -149,10 +155,32 @@ export default function NewQuote() {
       .select()
       .single()
 
-    setSaving(false)
-    if (err) { setError(err.message); return }
+    if (err) { setSaving(false); setError(err.message); return }
 
-    // Phase D: pass `quote: newQuote` so the email template has full data
+    // Feature A: bulk-insert any installs that were filled in
+    // Skips truly blank rows (no description and no amounts)
+    const installRows = installs
+      .filter((r) => r.description || r.dnp_amount || r.markup_amount || r.customer_total)
+      .map((r, idx) => ({
+        quote_id: newQuote.id,
+        position: idx + 1,
+        description: r.description || null,
+        vendor: r.vendor || null,
+        po_number: r.po_number || null,
+        dnp_amount: r.dnp_amount ? parseFloat(r.dnp_amount) : null,
+        markup_amount: r.markup_amount ? parseFloat(r.markup_amount) : null,
+        customer_total: r.customer_total ? parseFloat(r.customer_total) : null,
+      }))
+
+    if (installRows.length) {
+      const { error: instErr } = await supabase.from('quote_installs').insert(installRows)
+      if (instErr) console.error('install insert failed (non-fatal):', instErr)
+      // Non-fatal — quote saved successfully; user can re-add installs from QuoteDetail
+    }
+
+    setSaving(false)
+
+    // Phase D: pass `quote: newQuote` so email template has full data
     await logNewQuoteEvent({ quoteId: newQuote.id, autoApproved, profile, quote: newQuote })
 
     navigate(`/quote/${newQuote.id}`)
@@ -385,6 +413,14 @@ export default function NewQuote() {
           <div className="mt-4">
             <label className={labelClass}>Notes</label>
             <textarea className={inputClass} rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Any additional notes..." />
+          </div>
+
+          {/* Feature A: Local Installations — staged in state, bulk-inserted after quote save */}
+          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-dark-border">
+            <LocalInstallsTable
+              installs={installs}
+              onChange={setInstalls}
+            />
           </div>
         </div>
 
