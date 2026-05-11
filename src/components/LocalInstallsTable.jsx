@@ -9,8 +9,11 @@
 //
 // In persistent mode, accepts `quoteId` and saves on row blur or row removal.
 // In controlled mode, parent passes `installs` and `onChange`.
+//
+// onChange is fired on EVERY local mutation in BOTH modes so the parent
+// (e.g. QuoteDetail) can recalculate its RECAP totals immediately.
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 const EMPTY_ROW = {
@@ -32,7 +35,11 @@ export default function LocalInstallsTable({
   const [internalInstalls, setInternalInstalls] = useState(controlledInstalls || []);
   const [loading, setLoading] = useState(isPersistent);
 
-  // In persistent mode, load from DB on mount
+  // Keep a stable ref to the onChange callback to avoid re-running effects.
+  const onChangeRef = useRef(controlledOnChange);
+  useEffect(() => { onChangeRef.current = controlledOnChange; }, [controlledOnChange]);
+
+  // Initial load (persistent mode only)
   useEffect(() => {
     if (!isPersistent) {
       setInternalInstalls(controlledInstalls || []);
@@ -48,8 +55,11 @@ export default function LocalInstallsTable({
         .order('position', { ascending: true, nullsFirst: false });
       if (!cancelled) {
         if (error) console.error('LocalInstalls load error:', error);
-        setInternalInstalls(data || []);
+        const rows = data || [];
+        setInternalInstalls(rows);
         setLoading(false);
+        // Notify parent on initial load so RECAP totals are right from the start
+        onChangeRef.current?.(rows);
       }
     })();
     return () => { cancelled = true; };
@@ -61,28 +71,33 @@ export default function LocalInstallsTable({
     if (!isPersistent) setInternalInstalls(controlledInstalls || []);
   }, [controlledInstalls, isPersistent]);
 
-  const installs = internalInstalls;
+  // Single state-update helper. ALWAYS uses functional setState to avoid
+  // stale closures, and notifies parent in BOTH modes.
+  const mutate = useCallback((updater) => {
+    setInternalInstalls((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      // Fire parent onChange on every local mutation (used by QuoteDetail's RECAP recalc)
+      onChangeRef.current?.(next);
+      return next;
+    });
+  }, []);
 
-  const updateLocal = useCallback((next) => {
-    setInternalInstalls(next);
-    if (!isPersistent) controlledOnChange?.(next);
-  }, [isPersistent, controlledOnChange]);
+  const installs = internalInstalls;
 
   // --- row mutations ----------------------------------------------------
 
   const addRow = async () => {
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const newRow = {
       ...EMPTY_ROW,
       position: installs.length + 1,
-      // for persistent mode, give it a temp id until saved
-      id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: tempId,
       _isNew: true,
     };
-    const next = [...installs, newRow];
-    updateLocal(next);
+    mutate((prev) => [...prev, newRow]);
 
     if (isPersistent) {
-      const { id: tempId, _isNew, ...payload } = newRow;
+      const { id: _tempId, _isNew, ...payload } = newRow;
       const { data, error } = await supabase
         .from('quote_installs')
         .insert({ ...payload, quote_id: quoteId })
@@ -90,18 +105,17 @@ export default function LocalInstallsTable({
         .single();
       if (error) {
         console.error('install insert failed:', error);
-        // remove the optimistic row
-        updateLocal(next.filter((r) => r.id !== tempId));
+        // remove the optimistic row — use functional update to grab latest state
+        mutate((prev) => prev.filter((r) => r.id !== tempId));
         return;
       }
-      // swap temp id for real id
-      updateLocal(next.map((r) => (r.id === tempId ? data : r)));
+      // swap temp id for real id — again, functional update against the latest state
+      mutate((prev) => prev.map((r) => (r.id === tempId ? { ...r, ...data } : r)));
     }
   };
 
   const removeRow = async (rowId) => {
-    const next = installs.filter((r) => r.id !== rowId);
-    updateLocal(next);
+    mutate((prev) => prev.filter((r) => r.id !== rowId));
     if (isPersistent && !String(rowId).startsWith('temp-')) {
       const { error } = await supabase
         .from('quote_installs')
@@ -112,14 +126,15 @@ export default function LocalInstallsTable({
   };
 
   const updateField = (rowId, field, value) => {
-    updateLocal(installs.map((r) => (r.id === rowId ? { ...r, [field]: value } : r)));
+    mutate((prev) => prev.map((r) => (r.id === rowId ? { ...r, [field]: value } : r)));
   };
 
   // Save a row to DB on blur (persistent mode only)
   const saveRow = async (rowId) => {
     if (!isPersistent) return;
     if (String(rowId).startsWith('temp-')) return;     // not yet inserted
-    const row = installs.find((r) => r.id === rowId);
+    // Read the current value from state (not closure)
+    const row = internalInstalls.find((r) => r.id === rowId);
     if (!row) return;
 
     const { error } = await supabase
@@ -153,14 +168,12 @@ export default function LocalInstallsTable({
   const inputBase =
     'w-full bg-white dark:bg-dark-bg text-gray-900 dark:text-dark-text rounded px-2 py-1 text-sm border border-gray-300 dark:border-dark-border focus:outline-none focus:border-ttc-blue focus:ring-1 focus:ring-ttc-blue/30';
 
-  // For numeric fields: tint text red when value is negative
   const numericInput = (val) => {
     const n = parseFloat(val);
     const isNeg = Number.isFinite(n) && n < 0;
     return `${inputBase} font-numeric text-right ${isNeg ? 'text-stat-red dark:text-red-400' : ''}`;
   };
 
-  // For total cells in the footer
   const totalClass = (val) => {
     const isNeg = val < 0;
     return `p-2 text-right font-numeric ${
