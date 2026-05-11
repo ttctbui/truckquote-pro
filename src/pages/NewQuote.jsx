@@ -29,6 +29,9 @@ const INCENTIVE_OPTIONS = [
   'Trade Assist', 'Conquest Rebate', 'Finance Rate Support', 'Other'
 ]
 
+// Default to 30% per Excel; can be overridden by settings if needed
+const DEFAULT_COMMISSION_RATE = 30
+
 export default function NewQuote() {
   const { profile, signOut } = useAuth()
   const navigate = useNavigate()
@@ -68,22 +71,38 @@ export default function NewQuote() {
     }))
   }
 
-  const selectedPrice = parseFloat(form[`price_${form.selected_tier}`]) || 0
+  // Feature A: live install totals for GP math
+  const installTotals = installs.reduce(
+    (acc, r) => ({
+      dnp: acc.dnp + (parseFloat(r.dnp_amount) || 0),
+      customer: acc.customer + (parseFloat(r.customer_total) || 0),
+      markup: acc.markup + (parseFloat(r.markup_amount) || 0),
+    }),
+    { dnp: 0, customer: 0, markup: 0 }
+  )
+
+  const selectedTierPrice = parseFloat(form[`price_${form.selected_tier}`]) || 0
+  const baseCost = parseFloat(form.cost_of_vehicle) || 0
+  const pack = parseFloat(form.pack_amount) || 0
+  const incentiveTotal = parseFloat(form.incentive_total) || 0
+
+  // Feature A math (Excel Recap Sheet formulas):
+  //   Sale Price = Tier price + sum(install customer_total)
+  //   Cost       = Cost of Vehicle + sum(install dnp_amount)
+  //   GP         = Sale - Cost - pack - incentives
+  const displayedSalePrice = selectedTierPrice + installTotals.customer
+  const displayedCost = baseCost + installTotals.dnp
+  const grossProfit = displayedSalePrice - displayedCost - pack - incentiveTotal
+  const commission = grossProfit * (DEFAULT_COMMISSION_RATE / 100)
+
   const payment = calcPayment(
-    selectedPrice,
+    displayedSalePrice,
     parseFloat(form.down_payment) || 0,
     parseFloat(form.trade_value) || 0,
     parseFloat(form.trade_payoff) || 0,
     parseFloat(form.interest_rate) || 6.99,
     parseInt(form.term_months) || 60
   )
-
-  const cost = parseFloat(form.cost_of_vehicle) || 0
-  const pack = parseFloat(form.pack_amount) || 0
-  const incentiveTotal = parseFloat(form.incentive_total) || 0
-  // Feature A: GP unchanged for now — pending management decision
-  const grossProfit = selectedPrice - cost - pack - incentiveTotal
-  const commission = grossProfit * 0.25
 
   const makes = ['Isuzu', 'Ford', 'Hino', 'Mitsubishi Fuso', 'UD Trucks', 'Other']
   const models = {
@@ -96,12 +115,6 @@ export default function NewQuote() {
   }
   const bodyStyles = ['Cab & Chassis', 'Box Truck', 'Flatbed', 'Dump', 'Stake', 'Refrigerated', 'Service Body', 'Crane/Boom', 'Other']
 
-  // Phase B + D:
-  //   - Sales admins / managers get auto-approved at creation
-  //   - Salespeople still go to pending_approval — fires "needs approval" email
-  //   - Phase D: pass full quote into logNewQuoteEvent so email template has data
-  // Feature A:
-  //   - After quote insert succeeds, bulk-insert any installs the user filled in
   async function handleSave() {
     if (!form.customer_name) { setError('Customer name is required'); return }
     const finalMake = form.make === 'Other' ? form.make_other : form.make
@@ -158,7 +171,6 @@ export default function NewQuote() {
     if (err) { setSaving(false); setError(err.message); return }
 
     // Feature A: bulk-insert any installs that were filled in
-    // Skips truly blank rows (no description and no amounts)
     const installRows = installs
       .filter((r) => r.description || r.dnp_amount || r.markup_amount || r.customer_total)
       .map((r, idx) => ({
@@ -175,12 +187,10 @@ export default function NewQuote() {
     if (installRows.length) {
       const { error: instErr } = await supabase.from('quote_installs').insert(installRows)
       if (instErr) console.error('install insert failed (non-fatal):', instErr)
-      // Non-fatal — quote saved successfully; user can re-add installs from QuoteDetail
     }
 
     setSaving(false)
 
-    // Phase D: pass `quote: newQuote` so email template has full data
     await logNewQuoteEvent({ quoteId: newQuote.id, autoApproved, profile, quote: newQuote })
 
     navigate(`/quote/${newQuote.id}`)
@@ -194,6 +204,8 @@ export default function NewQuote() {
 
   const isAutoApprover = ['sales_admin', 'manager', 'admin'].includes(profile?.role)
   const submitLabel = isAutoApprover ? 'Save & Approve' : 'Submit for Approval'
+
+  const hasInstalls = installTotals.dnp !== 0 || installTotals.customer !== 0
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-dark-bg text-gray-900 dark:text-dark-text">
@@ -385,17 +397,28 @@ export default function NewQuote() {
               ))}
             </div>
           </div>
+
+          {/* Feature A: hint when installs are affecting the totals */}
+          {hasInstalls && (
+            <div className="mb-3 text-xs text-gray-500 dark:text-dark-muted bg-gray-50 dark:bg-dark-bg border border-gray-200 dark:border-dark-border rounded-lg px-3 py-2">
+              Includes ${installTotals.dnp.toLocaleString()} in install costs (DNP) and ${installTotals.customer.toLocaleString()} in install customer charges from the Local Installations section below.
+            </div>
+          )}
+
           <div className="grid grid-cols-3 gap-4 mt-4">
             <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
               <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Sale Price</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-dark-text font-numeric">${selectedPrice.toLocaleString()}</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-dark-text font-numeric">${displayedSalePrice.toLocaleString()}</p>
+              {hasInstalls && (
+                <p className="text-xs text-gray-500 dark:text-dark-muted">truck + installs</p>
+              )}
             </div>
             <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
               <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Gross Profit</p>
               <p className={`text-xl font-bold font-numeric ${grossProfit >= 0 ? 'text-stat-green' : 'text-stat-red'}`}>${grossProfit.toLocaleString()}</p>
             </div>
             <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
-              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Commission (25%)</p>
+              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Commission ({DEFAULT_COMMISSION_RATE}%)</p>
               <p className="text-xl font-bold text-stat-yellow font-numeric">${commission.toLocaleString()}</p>
             </div>
           </div>
