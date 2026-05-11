@@ -25,8 +25,22 @@ const EMPTY_ROW = {
   customer_total: '',
 };
 
+// Build the DB payload for one row.
+// Postgres numeric columns reject empty strings — convert "" / null / undefined → null.
+function rowToPayload(row) {
+  return {
+    description: row.description?.trim() || null,
+    vendor: row.vendor?.trim() || null,
+    po_number: row.po_number?.trim() || null,
+    dnp_amount: numOrNull(row.dnp_amount),
+    markup_amount: numOrNull(row.markup_amount),
+    customer_total: numOrNull(row.customer_total),
+    position: row.position ?? null,
+  };
+}
+
 export default function LocalInstallsTable({
-  quoteId,                   // when set → persistent mode
+  quoteId,
   installs: controlledInstalls,
   onChange: controlledOnChange,
   readOnly = false,
@@ -35,7 +49,6 @@ export default function LocalInstallsTable({
   const [internalInstalls, setInternalInstalls] = useState(controlledInstalls || []);
   const [loading, setLoading] = useState(isPersistent);
 
-  // Keep a stable ref to the onChange callback to avoid re-running effects.
   const onChangeRef = useRef(controlledOnChange);
   useEffect(() => { onChangeRef.current = controlledOnChange; }, [controlledOnChange]);
 
@@ -53,30 +66,26 @@ export default function LocalInstallsTable({
         .select('*')
         .eq('quote_id', quoteId)
         .order('position', { ascending: true, nullsFirst: false });
-      if (!cancelled) {
-        if (error) console.error('LocalInstalls load error:', error);
-        const rows = data || [];
-        setInternalInstalls(rows);
-        setLoading(false);
-        // Notify parent on initial load so RECAP totals are right from the start
-        onChangeRef.current?.(rows);
-      }
+      if (cancelled) return;
+      if (error) console.error('LocalInstalls load error:', error);
+      const rows = data || [];
+      setInternalInstalls(rows);
+      setLoading(false);
+      onChangeRef.current?.(rows);
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quoteId]);
 
-  // In controlled mode, sync down when parent changes
+  // Controlled mode sync
   useEffect(() => {
     if (!isPersistent) setInternalInstalls(controlledInstalls || []);
   }, [controlledInstalls, isPersistent]);
 
-  // Single state-update helper. ALWAYS uses functional setState to avoid
-  // stale closures, and notifies parent in BOTH modes.
+  // Single state mutation helper — always functional setState, notifies parent
   const mutate = useCallback((updater) => {
     setInternalInstalls((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
-      // Fire parent onChange on every local mutation (used by QuoteDetail's RECAP recalc)
       onChangeRef.current?.(next);
       return next;
     });
@@ -97,19 +106,20 @@ export default function LocalInstallsTable({
     mutate((prev) => [...prev, newRow]);
 
     if (isPersistent) {
-      const { id: _tempId, _isNew, ...payload } = newRow;
+      // Build a clean payload — empty strings become null so Postgres accepts it
+      const payload = { ...rowToPayload(newRow), quote_id: quoteId };
       const { data, error } = await supabase
         .from('quote_installs')
-        .insert({ ...payload, quote_id: quoteId })
+        .insert(payload)
         .select()
         .single();
       if (error) {
         console.error('install insert failed:', error);
-        // remove the optimistic row — use functional update to grab latest state
+        // Remove the optimistic row using the latest state
         mutate((prev) => prev.filter((r) => r.id !== tempId));
         return;
       }
-      // swap temp id for real id — again, functional update against the latest state
+      // Swap temp id for real DB row
       mutate((prev) => prev.map((r) => (r.id === tempId ? { ...r, ...data } : r)));
     }
   };
@@ -132,22 +142,13 @@ export default function LocalInstallsTable({
   // Save a row to DB on blur (persistent mode only)
   const saveRow = async (rowId) => {
     if (!isPersistent) return;
-    if (String(rowId).startsWith('temp-')) return;     // not yet inserted
-    // Read the current value from state (not closure)
+    if (String(rowId).startsWith('temp-')) return;
     const row = internalInstalls.find((r) => r.id === rowId);
     if (!row) return;
 
     const { error } = await supabase
       .from('quote_installs')
-      .update({
-        description: row.description || null,
-        vendor: row.vendor || null,
-        po_number: row.po_number || null,
-        dnp_amount: numOrNull(row.dnp_amount),
-        markup_amount: numOrNull(row.markup_amount),
-        customer_total: numOrNull(row.customer_total),
-        position: row.position,
-      })
+      .update(rowToPayload(row))
       .eq('id', rowId);
     if (error) console.error('install update failed:', error);
   };
@@ -177,9 +178,7 @@ export default function LocalInstallsTable({
   const totalClass = (val) => {
     const isNeg = val < 0;
     return `p-2 text-right font-numeric ${
-      isNeg
-        ? 'text-stat-red dark:text-red-400'
-        : 'text-gray-900 dark:text-dark-text'
+      isNeg ? 'text-stat-red dark:text-red-400' : 'text-gray-900 dark:text-dark-text'
     }`;
   };
 
@@ -224,10 +223,7 @@ export default function LocalInstallsTable({
             </thead>
             <tbody>
               {installs.map((r, i) => (
-                <tr
-                  key={r.id}
-                  className="border-t border-gray-200 dark:border-dark-border"
-                >
+                <tr key={r.id} className="border-t border-gray-200 dark:border-dark-border">
                   <td className="p-2 text-gray-500 dark:text-dark-muted font-numeric text-center">
                     {i + 1}
                   </td>
