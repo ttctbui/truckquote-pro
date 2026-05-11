@@ -36,7 +36,7 @@ export default function QuoteDetail() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
-  const [commissionRate, setCommissionRate] = useState(25)
+  const [commissionRate, setCommissionRate] = useState(30)
 
   // Phase B: keep the full quote row for action bar + last-edited line
   const [quote, setQuote] = useState(null)
@@ -44,6 +44,11 @@ export default function QuoteDetail() {
   const [docRequest, setDocRequest] = useState(null)
 
   const [form, setForm] = useState(null)
+
+  // Feature A: install totals for GP math
+  // (LocalInstallsTable owns the row data itself in persistent mode;
+  //  this is just for the RECAP calc on this page)
+  const [installTotals, setInstallTotals] = useState({ dnp: 0, customer: 0, markup: 0 })
 
   const makes = ['Isuzu', 'Ford', 'Hino', 'Mitsubishi Fuso', 'UD Trucks', 'Other']
   const models = {
@@ -60,12 +65,13 @@ export default function QuoteDetail() {
     fetchQuote()
     fetchSettings()
     fetchDocRequest()
+    fetchInstallTotals()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   async function fetchSettings() {
     const { data } = await supabase.from('settings').select('*').eq('id', 'global').single()
-    if (data) setCommissionRate(parseFloat(data.commission_rate) || 25)
+    if (data) setCommissionRate(parseFloat(data.commission_rate) || 30)
   }
 
   async function fetchDocRequest() {
@@ -77,6 +83,25 @@ export default function QuoteDetail() {
       .limit(1)
       .maybeSingle()
     setDocRequest(data || null)
+  }
+
+  // Feature A: read install totals for GP math. Called on mount and again
+  // whenever LocalInstallsTable signals a change (via the onTotalsChange callback).
+  async function fetchInstallTotals() {
+    const { data, error: err } = await supabase
+      .from('quote_installs')
+      .select('dnp_amount, markup_amount, customer_total')
+      .eq('quote_id', id)
+    if (err) { console.error('install totals fetch failed:', err); return }
+    const totals = (data || []).reduce(
+      (acc, r) => ({
+        dnp: acc.dnp + (parseFloat(r.dnp_amount) || 0),
+        customer: acc.customer + (parseFloat(r.customer_total) || 0),
+        markup: acc.markup + (parseFloat(r.markup_amount) || 0),
+      }),
+      { dnp: 0, customer: 0, markup: 0 }
+    )
+    setInstallTotals(totals)
   }
 
   async function fetchQuote() {
@@ -139,22 +164,31 @@ export default function QuoteDetail() {
     }))
   }
 
-  const selectedPrice = form ? parseFloat(form[`price_${form.selected_tier}`]) || 0 : 0
+  const selectedTierPrice = form ? parseFloat(form[`price_${form.selected_tier}`]) || 0 : 0
+
+  // Feature A: per Excel Recap Sheet formulas
+  //   Sale Price (G37) = Cost + Mark-up
+  //   Cost (G35) = Truck DNP + Sum(install DNPs) - Mfr Assists
+  //   GP (G44) = Sale - Cost
+  // In TruckQuote Pro terms: customer_total flows into sale price, dnp_amount flows into cost.
+  const baseCost = form ? parseFloat(form.cost_of_vehicle) || 0 : 0
+  const pack = form ? parseFloat(form.pack_amount) || 0 : 0
+  const incentiveTotal = form ? parseFloat(form.incentive_total) || 0 : 0
+
+  const displayedSalePrice = selectedTierPrice + installTotals.customer
+  const displayedCost = baseCost + installTotals.dnp
+  const grossProfit = displayedSalePrice - displayedCost - pack - incentiveTotal
+  const commission = grossProfit * (commissionRate / 100)
+
+  // Monthly payment based on FULL sale price (truck + installs the customer is paying for)
   const payment = form ? calcPayment(
-    selectedPrice,
+    displayedSalePrice,
     parseFloat(form.down_payment) || 0,
     parseFloat(form.trade_value) || 0,
     parseFloat(form.trade_payoff) || 0,
     parseFloat(form.interest_rate) || 6.99,
     parseInt(form.term_months) || 60
   ) : 0
-
-  const cost = form ? parseFloat(form.cost_of_vehicle) || 0 : 0
-  const pack = form ? parseFloat(form.pack_amount) || 0 : 0
-  const incentiveTotal = form ? parseFloat(form.incentive_total) || 0 : 0
-  // Feature A: GP unchanged for now — pending management decision on how installs affect GP
-  const grossProfit = selectedPrice - cost - pack - incentiveTotal
-  const commission = grossProfit * (commissionRate / 100)
 
   async function handleSave() {
     if (!form.customer_name) { setError('Customer name is required'); return }
@@ -217,6 +251,9 @@ export default function QuoteDetail() {
 
   if (loading) return <div className="min-h-screen bg-gray-50 dark:bg-dark-bg flex items-center justify-center text-gray-500 dark:text-dark-muted">Loading...</div>
   if (!form || !quote) return null
+
+  // Feature A: hint shown only when installs are present
+  const hasInstalls = installTotals.dnp !== 0 || installTotals.customer !== 0
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-dark-bg text-gray-900 dark:text-dark-text">
@@ -431,10 +468,21 @@ export default function QuoteDetail() {
               ))}
             </div>
           </div>
+
+          {/* Feature A: hint when installs are affecting the totals */}
+          {hasInstalls && (
+            <div className="mb-3 text-xs text-gray-500 dark:text-dark-muted bg-gray-50 dark:bg-dark-bg border border-gray-200 dark:border-dark-border rounded-lg px-3 py-2">
+              Includes ${installTotals.dnp.toLocaleString()} in install costs (DNP) and ${installTotals.customer.toLocaleString()} in install customer charges from the Local Installations section below.
+            </div>
+          )}
+
           <div className="grid grid-cols-3 gap-4 mt-4">
             <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
               <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Sale Price</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-dark-text font-numeric">${selectedPrice.toLocaleString()}</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-dark-text font-numeric">${displayedSalePrice.toLocaleString()}</p>
+              {hasInstalls && (
+                <p className="text-xs text-gray-500 dark:text-dark-muted">truck + installs</p>
+              )}
             </div>
             <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
               <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Gross Profit</p>
@@ -461,9 +509,13 @@ export default function QuoteDetail() {
             <textarea className={inputClass} rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} />
           </div>
 
-          {/* Feature A: Local Installations — auto-saves to quote_installs table on blur */}
+          {/* Feature A: Local Installations — auto-saves to quote_installs table on blur.
+              On any edit/add/remove, refresh the totals so RECAP recalculates immediately. */}
           <div className="mt-6 pt-6 border-t border-gray-200 dark:border-dark-border">
-            <LocalInstallsTable quoteId={id} />
+            <LocalInstallsTable
+              quoteId={id}
+              onChange={fetchInstallTotals}
+            />
           </div>
         </div>
 
