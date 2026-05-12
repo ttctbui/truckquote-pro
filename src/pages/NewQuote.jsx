@@ -68,7 +68,7 @@ export default function NewQuote() {
     notes: '',
     docs_submitted: 'No',
     // Feature B: OTD fields with defaults matching Excel
-    tax_zip: '', tax_state: 'CA', tax_rate: '10.50',
+    tax_address: '', tax_zip: '', tax_state: 'CA', tax_rate: '10.50',
     tax_city: '', tax_county: '',
     fee_doc_prep: '85', fee_fire_ext: '250', fee_dmv: '37',
     fee_admin: '395', fee_tire: '10.50', fee_warranty: '0',
@@ -191,6 +191,7 @@ export default function NewQuote() {
       notes: form.notes,
       docs_submitted: form.docs_submitted,
       // Feature B: OTD fields
+      tax_address: form.tax_address?.trim() || null,
       tax_zip: form.tax_zip?.trim() || null,
       tax_state: form.tax_state || 'CA',
       tax_rate: numOrDefault(form.tax_rate, 10.50),
