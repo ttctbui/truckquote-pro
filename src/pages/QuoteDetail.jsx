@@ -14,6 +14,20 @@ import { saveQuoteEdits } from '../lib/quoteActions'
 import LocalInstallsTable from '../components/LocalInstallsTable'
 // ─────────────────────────────────────────────────────────────────────
 
+// Robust number parser: empty string → default, "0" → 0, "abc" → default
+function numOrDefault(val, def = 0) {
+  if (val === '' || val == null) return def
+  const n = typeof val === 'string' ? parseFloat(val) : Number(val)
+  return Number.isFinite(n) ? n : def
+}
+
+// Same idea but returns null on missing (for nullable DB columns like price_*)
+function numOrNull(val) {
+  if (val === '' || val == null) return null
+  const n = typeof val === 'string' ? parseFloat(val) : Number(val)
+  return Number.isFinite(n) ? n : null
+}
+
 function calcPayment(price, down, tradeValue, tradePayoff, incentive, rate, months) {
   // Incentives act like cash down (reduce amount financed)
   const amount = price - down - tradeValue + tradePayoff - incentive
@@ -65,7 +79,7 @@ export default function QuoteDetail() {
 
   async function fetchSettings() {
     const { data } = await supabase.from('settings').select('*').eq('id', 'global').single()
-    if (data) setCommissionRate(parseFloat(data.commission_rate) || 30)
+    if (data) setCommissionRate(numOrDefault(data.commission_rate, 30))
   }
 
   async function fetchDocRequest() {
@@ -87,9 +101,9 @@ export default function QuoteDetail() {
     if (err) { console.error('install totals fetch failed:', err); return }
     const totals = (data || []).reduce(
       (acc, r) => ({
-        dnp: acc.dnp + (parseFloat(r.dnp_amount) || 0),
-        customer: acc.customer + (parseFloat(r.customer_total) || 0),
-        markup: acc.markup + (parseFloat(r.markup_amount) || 0),
+        dnp: acc.dnp + numOrDefault(r.dnp_amount, 0),
+        customer: acc.customer + numOrDefault(r.customer_total, 0),
+        markup: acc.markup + numOrDefault(r.markup_amount, 0),
       }),
       { dnp: 0, customer: 0, markup: 0 }
     )
@@ -105,14 +119,19 @@ export default function QuoteDetail() {
 
     setQuote(data)
 
-    // Backfill: if this is an older quote with price_* but no gross_profit_*,
-    // derive a starting GP from the old data (price - cost) for the salesperson
-    // to review. New quotes start with 0 in each tier.
-    const baseCost = parseFloat(data.cost_of_vehicle) || 0
+    // Backfill: derive GP from old price - cost for legacy quotes
+    const baseCost = numOrDefault(data.cost_of_vehicle, 0)
     const fallbackGp = (price) => {
-      const p = parseFloat(price) || 0
+      if (price == null) return ''
+      const p = numOrDefault(price, 0)
       if (p && baseCost) return Math.max(0, p - baseCost).toString()
       return ''
+    }
+
+    // toFormStr: load value as a string, preserving "0" (don't lose it to falsy)
+    const toFormStr = (v, fallback = '') => {
+      if (v == null || v === '') return fallback
+      return String(v)
     }
 
     setForm({
@@ -132,29 +151,29 @@ export default function QuoteDetail() {
       vin: data.vin || '',
       stock_number: data.stock_number || '',
       color: data.color || '',
-      msrp: data.msrp || '',
-      // New: GP per tier (with backfill from old price columns)
+      msrp: toFormStr(data.msrp, ''),
       gross_profit_good: data.gross_profit_good != null
-        ? data.gross_profit_good.toString()
+        ? String(data.gross_profit_good)
         : fallbackGp(data.price_good),
       gross_profit_better: data.gross_profit_better != null
-        ? data.gross_profit_better.toString()
+        ? String(data.gross_profit_better)
         : fallbackGp(data.price_better),
       gross_profit_best: data.gross_profit_best != null
-        ? data.gross_profit_best.toString()
+        ? String(data.gross_profit_best)
         : fallbackGp(data.price_best),
       selected_tier: data.selected_tier || 'better',
-      down_payment: data.down_payment || '0',
-      trade_value: data.trade_value || '0',
-      trade_payoff: data.trade_payoff || '0',
-      term_months: data.term_months || '60',
-      interest_rate: data.interest_rate || '6.99',
+      // CRITICAL: use toFormStr so "0" loads as "0", not gets replaced by default
+      down_payment: toFormStr(data.down_payment, '0'),
+      trade_value: toFormStr(data.trade_value, '0'),
+      trade_payoff: toFormStr(data.trade_payoff, '0'),
+      term_months: toFormStr(data.term_months, '60'),
+      interest_rate: toFormStr(data.interest_rate, '6.99'),
       deal_type: data.deal_type || 'Finance',
       deal_number: data.deal_number || '',
-      cost_of_vehicle: data.cost_of_vehicle || '',
-      pack_amount: data.pack_amount || '500',
+      cost_of_vehicle: toFormStr(data.cost_of_vehicle, ''),
+      pack_amount: toFormStr(data.pack_amount, '500'),
       selected_incentives: Array.isArray(data.selected_incentives) ? data.selected_incentives : [],
-      incentive_total: data.incentive_total || '0',
+      incentive_total: toFormStr(data.incentive_total, '0'),
       notes: data.notes || '',
       docs_submitted: data.docs_submitted || 'No',
       quote_number: data.quote_number || '',
@@ -173,17 +192,15 @@ export default function QuoteDetail() {
     }))
   }
 
-  // ── New GP-per-tier math ────────────────────────────────────────────
-  // Per tier:  Sale Price = Cost of Vehicle + sum(install Customer Total) + GP + Pack
-  // Incentives act like cash down — they reduce monthly payment but NOT Sale Price or GP
-  const baseCost = form ? parseFloat(form.cost_of_vehicle) || 0 : 0
-  const pack = form ? parseFloat(form.pack_amount) || 0 : 0
-  const incentiveTotal = form ? parseFloat(form.incentive_total) || 0 : 0
+  // GP-per-tier math
+  const baseCost = form ? numOrDefault(form.cost_of_vehicle, 0) : 0
+  const pack = form ? numOrDefault(form.pack_amount, 0) : 0
+  const incentiveTotal = form ? numOrDefault(form.incentive_total, 0) : 0
 
   const gpByTier = form ? {
-    good:   parseFloat(form.gross_profit_good)   || 0,
-    better: parseFloat(form.gross_profit_better) || 0,
-    best:   parseFloat(form.gross_profit_best)   || 0,
+    good:   numOrDefault(form.gross_profit_good,   0),
+    better: numOrDefault(form.gross_profit_better, 0),
+    best:   numOrDefault(form.gross_profit_best,   0),
   } : { good: 0, better: 0, best: 0 }
 
   const salePriceByTier = {
@@ -199,11 +216,11 @@ export default function QuoteDetail() {
 
   const payment = form ? calcPayment(
     selectedSalePrice,
-    parseFloat(form.down_payment) || 0,
-    parseFloat(form.trade_value) || 0,
-    parseFloat(form.trade_payoff) || 0,
+    numOrDefault(form.down_payment, 0),
+    numOrDefault(form.trade_value, 0),
+    numOrDefault(form.trade_payoff, 0),
     incentiveTotal,
-    parseFloat(form.interest_rate) || 6.99,
+    numOrDefault(form.interest_rate, 6.99),
     parseInt(form.term_months) || 60
   ) : 0
 
@@ -229,31 +246,31 @@ export default function QuoteDetail() {
       vin: form.vin,
       stock_number: form.stock_number,
       color: form.color,
-      msrp: parseFloat(form.msrp) || null,
-      // Save the new GP fields
-      gross_profit_good:   parseFloat(form.gross_profit_good)   || null,
-      gross_profit_better: parseFloat(form.gross_profit_better) || null,
-      gross_profit_best:   parseFloat(form.gross_profit_best)   || null,
-      // Also write back the derived sale prices into the old price columns
-      // so downstream reports and the Stats tab still work
+      msrp: numOrNull(form.msrp),
+      gross_profit_good:   numOrNull(form.gross_profit_good),
+      gross_profit_better: numOrNull(form.gross_profit_better),
+      gross_profit_best:   numOrNull(form.gross_profit_best),
+      // Write derived sale prices into legacy price_* columns
       price_good:   salePriceByTier.good   || null,
       price_better: salePriceByTier.better || null,
       price_best:   salePriceByTier.best   || null,
       selected_tier: form.selected_tier,
-      down_payment: parseFloat(form.down_payment) || 0,
-      trade_value: parseFloat(form.trade_value) || 0,
-      trade_payoff: parseFloat(form.trade_payoff) || 0,
-      term_months: parseInt(form.term_months) || 60,
-      interest_rate: parseFloat(form.interest_rate) || 6.99,
+      // Use numOrDefault so "0" saves as 0, not as the fallback
+      down_payment: numOrDefault(form.down_payment, 0),
+      trade_value:  numOrDefault(form.trade_value,  0),
+      trade_payoff: numOrDefault(form.trade_payoff, 0),
+      term_months:  parseInt(form.term_months) || 60,
+      interest_rate: numOrDefault(form.interest_rate, 6.99),
       monthly_payment: payment,
       deal_type: form.deal_type,
       deal_number: form.deal_number?.trim() || null,
-      cost_of_vehicle: parseFloat(form.cost_of_vehicle) || null,
-      pack_amount: parseFloat(form.pack_amount) || 500,
+      cost_of_vehicle: numOrNull(form.cost_of_vehicle),
+      // CRITICAL FIX: was "|| 500" before, which broke when user entered 0
+      pack_amount: numOrDefault(form.pack_amount, 500),
       gross_profit: selectedGp,
       commission: commission,
       selected_incentives: form.selected_incentives,
-      incentive_total: parseFloat(form.incentive_total) || 0,
+      incentive_total: numOrDefault(form.incentive_total, 0),
       notes: form.notes,
       docs_submitted: form.docs_submitted,
     }
@@ -421,7 +438,7 @@ export default function QuoteDetail() {
           </div>
         </div>
 
-        {/* GBB Pricing — now GP-per-tier */}
+        {/* GBB Pricing — GP-per-tier */}
         <div className={sectionClass}>
           <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Good · Better · Best Pricing</h2>
           <p className="text-xs text-gray-500 dark:text-dark-muted mb-3">
@@ -511,7 +528,6 @@ export default function QuoteDetail() {
             </div>
           </div>
 
-          {/* Context hint */}
           <div className="mb-3 text-xs text-gray-500 dark:text-dark-muted bg-gray-50 dark:bg-dark-bg border border-gray-200 dark:border-dark-border rounded-lg px-3 py-2">
             Selected tier: <span className="font-semibold capitalize">{selectedTier}</span> · GP ${selectedGp.toLocaleString()}
             {hasInstalls && (
