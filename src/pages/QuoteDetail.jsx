@@ -14,8 +14,9 @@ import { saveQuoteEdits } from '../lib/quoteActions'
 import LocalInstallsTable from '../components/LocalInstallsTable'
 // ─────────────────────────────────────────────────────────────────────
 
-function calcPayment(price, down, tradeValue, tradePayoff, rate, months) {
-  const amount = price - down - tradeValue + tradePayoff
+function calcPayment(price, down, tradeValue, tradePayoff, incentive, rate, months) {
+  // Incentives act like cash down (reduce amount financed)
+  const amount = price - down - tradeValue + tradePayoff - incentive
   if (amount <= 0 || months <= 0) return 0
   const r = rate / 100 / 12
   if (r === 0) return amount / months
@@ -38,16 +39,9 @@ export default function QuoteDetail() {
   const [saved, setSaved] = useState(false)
   const [commissionRate, setCommissionRate] = useState(30)
 
-  // Phase B: keep the full quote row for action bar + last-edited line
   const [quote, setQuote] = useState(null)
-  // Phase B: doc request lives on existing quotes
   const [docRequest, setDocRequest] = useState(null)
-
   const [form, setForm] = useState(null)
-
-  // Feature A: install totals for GP math
-  // (LocalInstallsTable owns the row data itself in persistent mode;
-  //  this is just for the RECAP calc on this page)
   const [installTotals, setInstallTotals] = useState({ dnp: 0, customer: 0, markup: 0 })
 
   const makes = ['Isuzu', 'Ford', 'Hino', 'Mitsubishi Fuso', 'UD Trucks', 'Other']
@@ -85,8 +79,6 @@ export default function QuoteDetail() {
     setDocRequest(data || null)
   }
 
-  // Feature A: read install totals for GP math. Called on mount and again
-  // whenever LocalInstallsTable signals a change (via the onTotalsChange callback).
   async function fetchInstallTotals() {
     const { data, error: err } = await supabase
       .from('quote_installs')
@@ -113,6 +105,16 @@ export default function QuoteDetail() {
 
     setQuote(data)
 
+    // Backfill: if this is an older quote with price_* but no gross_profit_*,
+    // derive a starting GP from the old data (price - cost) for the salesperson
+    // to review. New quotes start with 0 in each tier.
+    const baseCost = parseFloat(data.cost_of_vehicle) || 0
+    const fallbackGp = (price) => {
+      const p = parseFloat(price) || 0
+      if (p && baseCost) return Math.max(0, p - baseCost).toString()
+      return ''
+    }
+
     setForm({
       customer_name: data.customer_name || '',
       customer_phone: data.customer_phone || '',
@@ -131,9 +133,16 @@ export default function QuoteDetail() {
       stock_number: data.stock_number || '',
       color: data.color || '',
       msrp: data.msrp || '',
-      price_good: data.price_good || '',
-      price_better: data.price_better || '',
-      price_best: data.price_best || '',
+      // New: GP per tier (with backfill from old price columns)
+      gross_profit_good: data.gross_profit_good != null
+        ? data.gross_profit_good.toString()
+        : fallbackGp(data.price_good),
+      gross_profit_better: data.gross_profit_better != null
+        ? data.gross_profit_better.toString()
+        : fallbackGp(data.price_better),
+      gross_profit_best: data.gross_profit_best != null
+        ? data.gross_profit_best.toString()
+        : fallbackGp(data.price_best),
       selected_tier: data.selected_tier || 'better',
       down_payment: data.down_payment || '0',
       trade_value: data.trade_value || '0',
@@ -164,28 +173,36 @@ export default function QuoteDetail() {
     }))
   }
 
-  const selectedTierPrice = form ? parseFloat(form[`price_${form.selected_tier}`]) || 0 : 0
-
-  // Feature A: per Excel Recap Sheet formulas
-  //   Sale Price (G37) = Cost + Mark-up
-  //   Cost (G35) = Truck DNP + Sum(install DNPs) - Mfr Assists
-  //   GP (G44) = Sale - Cost
-  // In TruckQuote Pro terms: customer_total flows into sale price, dnp_amount flows into cost.
+  // ── New GP-per-tier math ────────────────────────────────────────────
+  // Per tier:  Sale Price = Cost of Vehicle + sum(install Customer Total) + GP + Pack
+  // Incentives act like cash down — they reduce monthly payment but NOT Sale Price or GP
   const baseCost = form ? parseFloat(form.cost_of_vehicle) || 0 : 0
   const pack = form ? parseFloat(form.pack_amount) || 0 : 0
   const incentiveTotal = form ? parseFloat(form.incentive_total) || 0 : 0
 
-  const displayedSalePrice = selectedTierPrice + installTotals.customer
-  const displayedCost = baseCost + installTotals.dnp
-  const grossProfit = displayedSalePrice - displayedCost - pack - incentiveTotal
-  const commission = grossProfit * (commissionRate / 100)
+  const gpByTier = form ? {
+    good:   parseFloat(form.gross_profit_good)   || 0,
+    better: parseFloat(form.gross_profit_better) || 0,
+    best:   parseFloat(form.gross_profit_best)   || 0,
+  } : { good: 0, better: 0, best: 0 }
 
-  // Monthly payment based on FULL sale price (truck + installs the customer is paying for)
+  const salePriceByTier = {
+    good:   baseCost + installTotals.customer + gpByTier.good   + pack,
+    better: baseCost + installTotals.customer + gpByTier.better + pack,
+    best:   baseCost + installTotals.customer + gpByTier.best   + pack,
+  }
+
+  const selectedTier = form?.selected_tier || 'better'
+  const selectedGp = gpByTier[selectedTier]
+  const selectedSalePrice = salePriceByTier[selectedTier]
+  const commission = selectedGp * (commissionRate / 100)
+
   const payment = form ? calcPayment(
-    displayedSalePrice,
+    selectedSalePrice,
     parseFloat(form.down_payment) || 0,
     parseFloat(form.trade_value) || 0,
     parseFloat(form.trade_payoff) || 0,
+    incentiveTotal,
     parseFloat(form.interest_rate) || 6.99,
     parseInt(form.term_months) || 60
   ) : 0
@@ -213,9 +230,15 @@ export default function QuoteDetail() {
       stock_number: form.stock_number,
       color: form.color,
       msrp: parseFloat(form.msrp) || null,
-      price_good: parseFloat(form.price_good) || null,
-      price_better: parseFloat(form.price_better) || null,
-      price_best: parseFloat(form.price_best) || null,
+      // Save the new GP fields
+      gross_profit_good:   parseFloat(form.gross_profit_good)   || null,
+      gross_profit_better: parseFloat(form.gross_profit_better) || null,
+      gross_profit_best:   parseFloat(form.gross_profit_best)   || null,
+      // Also write back the derived sale prices into the old price columns
+      // so downstream reports and the Stats tab still work
+      price_good:   salePriceByTier.good   || null,
+      price_better: salePriceByTier.better || null,
+      price_best:   salePriceByTier.best   || null,
       selected_tier: form.selected_tier,
       down_payment: parseFloat(form.down_payment) || 0,
       trade_value: parseFloat(form.trade_value) || 0,
@@ -227,9 +250,10 @@ export default function QuoteDetail() {
       deal_number: form.deal_number?.trim() || null,
       cost_of_vehicle: parseFloat(form.cost_of_vehicle) || null,
       pack_amount: parseFloat(form.pack_amount) || 500,
-      gross_profit: grossProfit,
+      gross_profit: selectedGp,
       commission: commission,
       selected_incentives: form.selected_incentives,
+      incentive_total: parseFloat(form.incentive_total) || 0,
       notes: form.notes,
       docs_submitted: form.docs_submitted,
     }
@@ -252,7 +276,6 @@ export default function QuoteDetail() {
   if (loading) return <div className="min-h-screen bg-gray-50 dark:bg-dark-bg flex items-center justify-center text-gray-500 dark:text-dark-muted">Loading...</div>
   if (!form || !quote) return null
 
-  // Feature A: hint shown only when installs are present
   const hasInstalls = installTotals.dnp !== 0 || installTotals.customer !== 0
 
   return (
@@ -398,9 +421,12 @@ export default function QuoteDetail() {
           </div>
         </div>
 
-        {/* GBB Pricing */}
+        {/* GBB Pricing — now GP-per-tier */}
         <div className={sectionClass}>
           <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Good · Better · Best Pricing</h2>
+          <p className="text-xs text-gray-500 dark:text-dark-muted mb-3">
+            Enter the Gross Profit target for each tier. Sale Price is calculated as Cost + Local Installs + GP + Pack.
+          </p>
           <div className="grid grid-cols-3 gap-4">
             {['good', 'better', 'best'].map(tier => (
               <div key={tier} onClick={() => set('selected_tier', tier)}
@@ -410,12 +436,22 @@ export default function QuoteDetail() {
                     : 'border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-bg hover:border-gray-300 dark:hover:border-dark-muted'
                 }`}>
                 <p className="text-xs font-semibold uppercase tracking-wider mb-2 text-gray-500 dark:text-dark-muted">{tier}</p>
+                <label className="text-xs text-gray-500 dark:text-dark-muted mb-1 block">Gross Profit target</label>
                 <div className="relative">
                   <span className="absolute left-3 top-2 text-gray-400 dark:text-dark-muted text-sm">$</span>
                   <input
                     className="w-full bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text rounded-lg pl-7 pr-3 py-2 border border-gray-300 dark:border-dark-border focus:outline-none focus:border-ttc-blue focus:ring-2 focus:ring-ttc-blue/20 text-sm transition-all font-numeric"
-                    value={form[`price_${tier}`]} onChange={e => set(`price_${tier}`, e.target.value)} placeholder="0" onClick={e => e.stopPropagation()}
+                    value={form[`gross_profit_${tier}`]}
+                    onChange={e => set(`gross_profit_${tier}`, e.target.value)}
+                    placeholder="0"
+                    onClick={e => e.stopPropagation()}
                   />
+                </div>
+                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-dark-border">
+                  <p className="text-xs text-gray-500 dark:text-dark-muted mb-0.5">Calculated Sale Price</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-dark-text font-numeric">
+                    ${salePriceByTier[tier].toLocaleString()}
+                  </p>
                 </div>
                 {form.selected_tier === tier && <p className="text-xs text-ttc-blue mt-2 font-semibold">✓ Selected</p>}
               </div>
@@ -426,6 +462,9 @@ export default function QuoteDetail() {
         {/* Finance */}
         <div className={sectionClass}>
           <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Financing</h2>
+          <p className="text-xs text-gray-500 dark:text-dark-muted mb-3">
+            Note: Out The Door Price section with fees + tax coming next. For now, monthly payment is based on Sale Price minus down/trade/incentives.
+          </p>
           <div className="grid grid-cols-3 gap-4">
             <div><label className={labelClass}>Down Payment</label><input className={inputClass} value={form.down_payment} onChange={e => set('down_payment', e.target.value)} /></div>
             <div><label className={labelClass}>Trade-In Value</label><input className={inputClass} value={form.trade_value} onChange={e => set('trade_value', e.target.value)} /></div>
@@ -451,7 +490,10 @@ export default function QuoteDetail() {
           <div className="grid grid-cols-3 gap-4 mb-4">
             <div><label className={labelClass}>Cost of Vehicle</label><input className={inputClass} value={form.cost_of_vehicle} onChange={e => set('cost_of_vehicle', e.target.value)} placeholder="0" /></div>
             <div><label className={labelClass}>Pack Amount</label><input className={inputClass} value={form.pack_amount} onChange={e => set('pack_amount', e.target.value)} placeholder="500" /></div>
-            <div><label className={labelClass}>Incentive Total</label><input className={inputClass} value={form.incentive_total} onChange={e => set('incentive_total', e.target.value)} placeholder="0" /></div>
+            <div>
+              <label className={labelClass}>Incentive Total <span className="text-gray-400 dark:text-dark-muted font-normal">(applied as cash down)</span></label>
+              <input className={inputClass} value={form.incentive_total} onChange={e => set('incentive_total', e.target.value)} placeholder="0" />
+            </div>
           </div>
           <div className="mb-4">
             <label className={labelClass}>Incentives / Rebates (select all that apply)</label>
@@ -469,24 +511,23 @@ export default function QuoteDetail() {
             </div>
           </div>
 
-          {/* Feature A: hint when installs are affecting the totals */}
-          {hasInstalls && (
-            <div className="mb-3 text-xs text-gray-500 dark:text-dark-muted bg-gray-50 dark:bg-dark-bg border border-gray-200 dark:border-dark-border rounded-lg px-3 py-2">
-              Includes ${installTotals.dnp.toLocaleString()} in install costs (DNP) and ${installTotals.customer.toLocaleString()} in install customer charges from the Local Installations section below.
-            </div>
-          )}
+          {/* Context hint */}
+          <div className="mb-3 text-xs text-gray-500 dark:text-dark-muted bg-gray-50 dark:bg-dark-bg border border-gray-200 dark:border-dark-border rounded-lg px-3 py-2">
+            Selected tier: <span className="font-semibold capitalize">{selectedTier}</span> · GP ${selectedGp.toLocaleString()}
+            {hasInstalls && (
+              <> · includes ${installTotals.dnp.toLocaleString()} install costs and ${installTotals.customer.toLocaleString()} install customer charges</>
+            )}
+          </div>
 
           <div className="grid grid-cols-3 gap-4 mt-4">
             <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
-              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Sale Price</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-dark-text font-numeric">${displayedSalePrice.toLocaleString()}</p>
-              {hasInstalls && (
-                <p className="text-xs text-gray-500 dark:text-dark-muted">truck + installs</p>
-              )}
+              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Sale Price (calculated)</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-dark-text font-numeric">${selectedSalePrice.toLocaleString()}</p>
+              <p className="text-xs text-gray-500 dark:text-dark-muted">cost + installs + GP + pack</p>
             </div>
             <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
               <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Gross Profit</p>
-              <p className={`text-xl font-bold font-numeric ${grossProfit >= 0 ? 'text-stat-green' : 'text-stat-red'}`}>${grossProfit.toLocaleString()}</p>
+              <p className={`text-xl font-bold font-numeric ${selectedGp >= 0 ? 'text-stat-green' : 'text-stat-red'}`}>${selectedGp.toLocaleString()}</p>
             </div>
             <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
               <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Commission ({commissionRate}%)</p>
@@ -509,8 +550,7 @@ export default function QuoteDetail() {
             <textarea className={inputClass} rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} />
           </div>
 
-          {/* Feature A: Local Installations — auto-saves to quote_installs table on blur.
-              On any edit/add/remove, refresh the totals so RECAP recalculates immediately. */}
+          {/* Feature A: Local Installations */}
           <div className="mt-6 pt-6 border-t border-gray-200 dark:border-dark-border">
             <LocalInstallsTable
               quoteId={id}
@@ -527,7 +567,6 @@ export default function QuoteDetail() {
           </button>
         </div>
 
-        {/* Phase B: Last edited footer */}
         <div className="mt-4 flex justify-end">
           <LastEditedLine quote={quote} />
         </div>
