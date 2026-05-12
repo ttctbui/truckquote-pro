@@ -10,8 +10,19 @@ import { buildNewQuoteRow, logNewQuoteEvent } from '../lib/quoteActions'
 import LocalInstallsTable from '../components/LocalInstallsTable'
 // ─────────────────────────────────────────────────────────────────────
 
+// Robust parsers — "0" stays 0, "" → default
+function numOrDefault(val, def = 0) {
+  if (val === '' || val == null) return def
+  const n = typeof val === 'string' ? parseFloat(val) : Number(val)
+  return Number.isFinite(n) ? n : def
+}
+function numOrNull(val) {
+  if (val === '' || val == null) return null
+  const n = typeof val === 'string' ? parseFloat(val) : Number(val)
+  return Number.isFinite(n) ? n : null
+}
+
 function calcPayment(price, down, tradeValue, tradePayoff, incentive, rate, months) {
-  // Incentives act like cash down — reduce amount financed
   const amount = price - down - tradeValue + tradePayoff - incentive
   if (amount <= 0 || months <= 0) return 0
   const r = rate / 100 / 12
@@ -45,7 +56,6 @@ export default function NewQuote() {
     body_style: '', body_style_other: '', truck_description: '',
     vin: '', stock_number: '', color: '',
     msrp: '',
-    // New: GP per tier (replaces price_*)
     gross_profit_good: '', gross_profit_better: '', gross_profit_best: '',
     selected_tier: 'better',
     down_payment: '0', trade_value: '0', trade_payoff: '0',
@@ -58,7 +68,6 @@ export default function NewQuote() {
     docs_submitted: 'No',
   })
 
-  // Feature A: staged installs
   const [installs, setInstalls] = useState([])
 
   function set(field, value) { setForm(f => ({ ...f, [field]: value })) }
@@ -75,22 +84,22 @@ export default function NewQuote() {
   // Live install totals
   const installTotals = installs.reduce(
     (acc, r) => ({
-      dnp: acc.dnp + (parseFloat(r.dnp_amount) || 0),
-      customer: acc.customer + (parseFloat(r.customer_total) || 0),
-      markup: acc.markup + (parseFloat(r.markup_amount) || 0),
+      dnp: acc.dnp + numOrDefault(r.dnp_amount, 0),
+      customer: acc.customer + numOrDefault(r.customer_total, 0),
+      markup: acc.markup + numOrDefault(r.markup_amount, 0),
     }),
     { dnp: 0, customer: 0, markup: 0 }
   )
 
-  // ── GP-per-tier math ────────────────────────────────────────────────
-  const baseCost = parseFloat(form.cost_of_vehicle) || 0
-  const pack = parseFloat(form.pack_amount) || 0
-  const incentiveTotal = parseFloat(form.incentive_total) || 0
+  // GP-per-tier math
+  const baseCost = numOrDefault(form.cost_of_vehicle, 0)
+  const pack = numOrDefault(form.pack_amount, 0)
+  const incentiveTotal = numOrDefault(form.incentive_total, 0)
 
   const gpByTier = {
-    good:   parseFloat(form.gross_profit_good)   || 0,
-    better: parseFloat(form.gross_profit_better) || 0,
-    best:   parseFloat(form.gross_profit_best)   || 0,
+    good:   numOrDefault(form.gross_profit_good,   0),
+    better: numOrDefault(form.gross_profit_better, 0),
+    best:   numOrDefault(form.gross_profit_best,   0),
   }
 
   const salePriceByTier = {
@@ -106,11 +115,11 @@ export default function NewQuote() {
 
   const payment = calcPayment(
     selectedSalePrice,
-    parseFloat(form.down_payment) || 0,
-    parseFloat(form.trade_value) || 0,
-    parseFloat(form.trade_payoff) || 0,
+    numOrDefault(form.down_payment, 0),
+    numOrDefault(form.trade_value, 0),
+    numOrDefault(form.trade_payoff, 0),
     incentiveTotal,
-    parseFloat(form.interest_rate) || 6.99,
+    numOrDefault(form.interest_rate, 6.99),
     parseInt(form.term_months) || 60
   )
 
@@ -148,31 +157,30 @@ export default function NewQuote() {
       vin: form.vin,
       stock_number: form.stock_number,
       color: form.color,
-      msrp: parseFloat(form.msrp) || null,
-      // New: GP per tier
-      gross_profit_good:   parseFloat(form.gross_profit_good)   || null,
-      gross_profit_better: parseFloat(form.gross_profit_better) || null,
-      gross_profit_best:   parseFloat(form.gross_profit_best)   || null,
-      // Also write derived sale prices into the legacy price_* columns
-      // (so Dashboard/Stats keep working with no further changes)
+      msrp: numOrNull(form.msrp),
+      gross_profit_good:   numOrNull(form.gross_profit_good),
+      gross_profit_better: numOrNull(form.gross_profit_better),
+      gross_profit_best:   numOrNull(form.gross_profit_best),
       price_good:   salePriceByTier.good   || null,
       price_better: salePriceByTier.better || null,
       price_best:   salePriceByTier.best   || null,
       selected_tier: form.selected_tier,
-      down_payment: parseFloat(form.down_payment) || 0,
-      trade_value: parseFloat(form.trade_value) || 0,
-      trade_payoff: parseFloat(form.trade_payoff) || 0,
-      term_months: parseInt(form.term_months) || 60,
-      interest_rate: parseFloat(form.interest_rate) || 6.99,
+      // numOrDefault so "0" saves as 0, not as the fallback
+      down_payment: numOrDefault(form.down_payment, 0),
+      trade_value:  numOrDefault(form.trade_value,  0),
+      trade_payoff: numOrDefault(form.trade_payoff, 0),
+      term_months:  parseInt(form.term_months) || 60,
+      interest_rate: numOrDefault(form.interest_rate, 6.99),
       monthly_payment: payment,
       deal_type: form.deal_type,
       deal_number: form.deal_number?.trim() || null,
-      cost_of_vehicle: parseFloat(form.cost_of_vehicle) || null,
-      pack_amount: parseFloat(form.pack_amount) || 500,
+      cost_of_vehicle: numOrNull(form.cost_of_vehicle),
+      // CRITICAL FIX: "|| 500" was eating the 0 entered by user
+      pack_amount: numOrDefault(form.pack_amount, 500),
       gross_profit: selectedGp,
       commission: commission,
       selected_incentives: form.selected_incentives,
-      incentive_total: parseFloat(form.incentive_total) || 0,
+      incentive_total: numOrDefault(form.incentive_total, 0),
       notes: form.notes,
       docs_submitted: form.docs_submitted,
     }
@@ -187,7 +195,7 @@ export default function NewQuote() {
 
     if (err) { setSaving(false); setError(err.message); return }
 
-    // Feature A: bulk-insert any installs that were filled in
+    // Feature A: bulk-insert any installs
     const installRows = installs
       .filter((r) => r.description || r.dnp_amount || r.markup_amount || r.customer_total)
       .map((r, idx) => ({
@@ -196,9 +204,9 @@ export default function NewQuote() {
         description: r.description || null,
         vendor: r.vendor || null,
         po_number: r.po_number || null,
-        dnp_amount: r.dnp_amount ? parseFloat(r.dnp_amount) : null,
-        markup_amount: r.markup_amount ? parseFloat(r.markup_amount) : null,
-        customer_total: r.customer_total ? parseFloat(r.customer_total) : null,
+        dnp_amount: numOrNull(r.dnp_amount),
+        markup_amount: numOrNull(r.markup_amount),
+        customer_total: numOrNull(r.customer_total),
       }))
 
     if (installRows.length) {
