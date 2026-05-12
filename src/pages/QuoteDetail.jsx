@@ -12,6 +12,8 @@ import DocRequestPanel from '../components/DocRequestPanel'
 import { saveQuoteEdits } from '../lib/quoteActions'
 // ── Feature A: Local Installations ───────────────────────────────────
 import LocalInstallsTable from '../components/LocalInstallsTable'
+// ── Feature B: Out The Door Price ────────────────────────────────────
+import OutTheDoorSection from '../components/OutTheDoorSection'
 // ─────────────────────────────────────────────────────────────────────
 
 // Robust number parser: empty string → default, "0" → 0, "abc" → default
@@ -28,13 +30,13 @@ function numOrNull(val) {
   return Number.isFinite(n) ? n : null
 }
 
-function calcPayment(price, down, tradeValue, tradePayoff, incentive, rate, months) {
-  // Incentives act like cash down (reduce amount financed)
-  const amount = price - down - tradeValue + tradePayoff - incentive
-  if (amount <= 0 || months <= 0) return 0
+function calcPayment(amountFinanced, rate, months) {
+  // Amount Financed is already net of down payment, incentives, and trade
+  // (calculated in OutTheDoorSection from OTD price minus reductions)
+  if (amountFinanced <= 0 || months <= 0) return 0
   const r = rate / 100 / 12
-  if (r === 0) return amount / months
-  return (amount * r * Math.pow(1 + r, months)) / (Math.pow(1 + r, months) - 1)
+  if (r === 0) return amountFinanced / months
+  return (amountFinanced * r * Math.pow(1 + r, months)) / (Math.pow(1 + r, months) - 1)
 }
 
 const INCENTIVE_OPTIONS = [
@@ -57,6 +59,15 @@ export default function QuoteDetail() {
   const [docRequest, setDocRequest] = useState(null)
   const [form, setForm] = useState(null)
   const [installTotals, setInstallTotals] = useState({ dnp: 0, customer: 0, markup: 0 })
+  // Feature B: OTD calculated totals (populated by OutTheDoorSection.onTotalsChange)
+  const [otdTotals, setOtdTotals] = useState({
+    totalTax: 0,
+    totalFees: 0,
+    otdPrice: 0,
+    amountFinanced: 0,
+    autoLicenseReg: 0,
+    effectiveLicenseReg: 0,
+  })
 
   const makes = ['Isuzu', 'Ford', 'Hino', 'Mitsubishi Fuso', 'UD Trucks', 'Other']
   const models = {
@@ -176,6 +187,20 @@ export default function QuoteDetail() {
       notes: data.notes || '',
       docs_submitted: data.docs_submitted || 'No',
       quote_number: data.quote_number || '',
+      // Feature B: Out The Door Price fields
+      tax_zip: data.tax_zip || '',
+      tax_state: data.tax_state || 'CA',
+      tax_rate: toFormStr(data.tax_rate, '10.50'),
+      tax_city: data.tax_city || '',
+      tax_county: data.tax_county || '',
+      fee_doc_prep: toFormStr(data.fee_doc_prep, '85'),
+      fee_fire_ext: toFormStr(data.fee_fire_ext, '250'),
+      fee_dmv: toFormStr(data.fee_dmv, '37'),
+      fee_admin: toFormStr(data.fee_admin, '395'),
+      fee_tire: toFormStr(data.fee_tire, '10.50'),
+      fee_warranty: toFormStr(data.fee_warranty, '0'),
+      fee_license_reg: data.fee_license_reg != null ? String(data.fee_license_reg) : '',
+      fee_license_reg_manual: !!data.fee_license_reg_manual,
     })
     setLoading(false)
   }
@@ -214,11 +239,7 @@ export default function QuoteDetail() {
   const commission = selectedGp * (commissionRate / 100)
 
   const payment = form ? calcPayment(
-    selectedSalePrice,
-    numOrDefault(form.down_payment, 0),
-    numOrDefault(form.trade_value, 0),
-    numOrDefault(form.trade_payoff, 0),
-    incentiveTotal,
+    otdTotals.amountFinanced,
     numOrDefault(form.interest_rate, 6.99),
     parseInt(form.term_months) || 60
   ) : 0
@@ -272,6 +293,26 @@ export default function QuoteDetail() {
       incentive_total: numOrDefault(form.incentive_total, 0),
       notes: form.notes,
       docs_submitted: form.docs_submitted,
+      // Feature B: OTD fields
+      tax_zip: form.tax_zip?.trim() || null,
+      tax_state: form.tax_state || 'CA',
+      tax_rate: numOrDefault(form.tax_rate, 10.50),
+      tax_city: form.tax_city || null,
+      tax_county: form.tax_county || null,
+      fee_doc_prep: numOrDefault(form.fee_doc_prep, 85),
+      fee_fire_ext: numOrDefault(form.fee_fire_ext, 250),
+      fee_dmv: numOrDefault(form.fee_dmv, 37),
+      fee_admin: numOrDefault(form.fee_admin, 395),
+      fee_tire: numOrDefault(form.fee_tire, 10.50),
+      fee_warranty: numOrDefault(form.fee_warranty, 0),
+      fee_license_reg: form.fee_license_reg_manual
+        ? numOrDefault(form.fee_license_reg, 0)
+        : otdTotals.autoLicenseReg,
+      fee_license_reg_manual: !!form.fee_license_reg_manual,
+      total_tax: otdTotals.totalTax,
+      total_fees: otdTotals.totalFees,
+      out_the_door_price: otdTotals.otdPrice,
+      amount_financed: otdTotals.amountFinanced,
     }
 
     const { data, error: err } = await saveQuoteEdits({ quoteId: id, patch, profile })
@@ -475,31 +516,6 @@ export default function QuoteDetail() {
           </div>
         </div>
 
-        {/* Finance */}
-        <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Financing</h2>
-          <p className="text-xs text-gray-500 dark:text-dark-muted mb-3">
-            Note: Out The Door Price section with fees + tax coming next. For now, monthly payment is based on Sale Price minus down/trade/incentives.
-          </p>
-          <div className="grid grid-cols-3 gap-4">
-            <div><label className={labelClass}>Down Payment</label><input className={inputClass} value={form.down_payment} onChange={e => set('down_payment', e.target.value)} /></div>
-            <div><label className={labelClass}>Trade-In Value</label><input className={inputClass} value={form.trade_value} onChange={e => set('trade_value', e.target.value)} /></div>
-            <div><label className={labelClass}>Trade Payoff</label><input className={inputClass} value={form.trade_payoff} onChange={e => set('trade_payoff', e.target.value)} /></div>
-            <div>
-              <label className={labelClass}>Term</label>
-              <select className={inputClass} value={form.term_months} onChange={e => set('term_months', e.target.value)}>
-                {[24,36,48,60,72,84].map(t => <option key={t} value={t}>{t} months</option>)}
-              </select>
-            </div>
-            <div><label className={labelClass}>Interest Rate %</label><input className={inputClass} value={form.interest_rate} onChange={e => set('interest_rate', e.target.value)} /></div>
-            <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
-              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Est. Monthly Payment</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-dark-text font-numeric">${payment.toFixed(2)}</p>
-              <p className="text-gray-500 dark:text-dark-muted text-xs">{form.selected_tier} price · {form.term_months} mo</p>
-            </div>
-          </div>
-        </div>
-
         {/* RECAP */}
         <div className={sectionClass}>
           <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">RECAP — Deal Summary</h2>
@@ -571,6 +587,44 @@ export default function QuoteDetail() {
               quoteId={id}
               onChange={recomputeInstallTotals}
             />
+          </div>
+        </div>
+
+        {/* Feature B: Out The Door Price */}
+        <OutTheDoorSection
+          salePrice={selectedSalePrice}
+          packAmount={pack}
+          downPayment={numOrDefault(form.down_payment, 0)}
+          tradeValue={numOrDefault(form.trade_value, 0)}
+          tradePayoff={numOrDefault(form.trade_payoff, 0)}
+          incentiveTotal={incentiveTotal}
+          otd={form}
+          onChange={(patch) => setForm(f => ({ ...f, ...patch }))}
+          onTotalsChange={setOtdTotals}
+        />
+
+        {/* Financing */}
+        <div className={sectionClass}>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Financing</h2>
+          <p className="text-xs text-gray-500 dark:text-dark-muted mb-3">
+            Customer finances the full Out The Door Price minus down payment, incentives, and net trade-in.
+          </p>
+          <div className="grid grid-cols-3 gap-4">
+            <div><label className={labelClass}>Down Payment</label><input className={inputClass} value={form.down_payment} onChange={e => set('down_payment', e.target.value)} /></div>
+            <div><label className={labelClass}>Trade-In Value</label><input className={inputClass} value={form.trade_value} onChange={e => set('trade_value', e.target.value)} /></div>
+            <div><label className={labelClass}>Trade Payoff</label><input className={inputClass} value={form.trade_payoff} onChange={e => set('trade_payoff', e.target.value)} /></div>
+            <div>
+              <label className={labelClass}>Term</label>
+              <select className={inputClass} value={form.term_months} onChange={e => set('term_months', e.target.value)}>
+                {[24,36,48,60,72,84].map(t => <option key={t} value={t}>{t} months</option>)}
+              </select>
+            </div>
+            <div><label className={labelClass}>Interest Rate %</label><input className={inputClass} value={form.interest_rate} onChange={e => set('interest_rate', e.target.value)} /></div>
+            <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
+              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Est. Monthly Payment</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-dark-text font-numeric">${payment.toFixed(2)}</p>
+              <p className="text-gray-500 dark:text-dark-muted text-xs">on ${otdTotals.amountFinanced.toLocaleString(undefined, { maximumFractionDigits: 0 })} financed · {form.term_months} mo</p>
+            </div>
           </div>
         </div>
 
