@@ -8,6 +8,8 @@ import ttcLogo from '../assets/ttc-logo.png'
 import { buildNewQuoteRow, logNewQuoteEvent } from '../lib/quoteActions'
 // ── Feature A: Local Installations ───────────────────────────────────
 import LocalInstallsTable from '../components/LocalInstallsTable'
+// ── Feature B: Out The Door Price ────────────────────────────────────
+import OutTheDoorSection from '../components/OutTheDoorSection'
 // ─────────────────────────────────────────────────────────────────────
 
 // Robust parsers — "0" stays 0, "" → default
@@ -22,12 +24,11 @@ function numOrNull(val) {
   return Number.isFinite(n) ? n : null
 }
 
-function calcPayment(price, down, tradeValue, tradePayoff, incentive, rate, months) {
-  const amount = price - down - tradeValue + tradePayoff - incentive
-  if (amount <= 0 || months <= 0) return 0
+function calcPayment(amountFinanced, rate, months) {
+  if (amountFinanced <= 0 || months <= 0) return 0
   const r = rate / 100 / 12
-  if (r === 0) return amount / months
-  return (amount * r * Math.pow(1 + r, months)) / (Math.pow(1 + r, months) - 1)
+  if (r === 0) return amountFinanced / months
+  return (amountFinanced * r * Math.pow(1 + r, months)) / (Math.pow(1 + r, months) - 1)
 }
 
 function genQuoteNumber() {
@@ -66,9 +67,19 @@ export default function NewQuote() {
     incentive_total: '0',
     notes: '',
     docs_submitted: 'No',
+    // Feature B: OTD fields with defaults matching Excel
+    tax_zip: '', tax_state: 'CA', tax_rate: '10.50',
+    tax_city: '', tax_county: '',
+    fee_doc_prep: '85', fee_fire_ext: '250', fee_dmv: '37',
+    fee_admin: '395', fee_tire: '10.50', fee_warranty: '0',
+    fee_license_reg: '', fee_license_reg_manual: false,
   })
 
   const [installs, setInstalls] = useState([])
+  const [otdTotals, setOtdTotals] = useState({
+    totalTax: 0, totalFees: 0, otdPrice: 0, amountFinanced: 0,
+    autoLicenseReg: 0, effectiveLicenseReg: 0,
+  })
 
   function set(field, value) { setForm(f => ({ ...f, [field]: value })) }
 
@@ -114,11 +125,7 @@ export default function NewQuote() {
   const commission = selectedGp * (DEFAULT_COMMISSION_RATE / 100)
 
   const payment = calcPayment(
-    selectedSalePrice,
-    numOrDefault(form.down_payment, 0),
-    numOrDefault(form.trade_value, 0),
-    numOrDefault(form.trade_payoff, 0),
-    incentiveTotal,
+    otdTotals.amountFinanced,
     numOrDefault(form.interest_rate, 6.99),
     parseInt(form.term_months) || 60
   )
@@ -183,6 +190,26 @@ export default function NewQuote() {
       incentive_total: numOrDefault(form.incentive_total, 0),
       notes: form.notes,
       docs_submitted: form.docs_submitted,
+      // Feature B: OTD fields
+      tax_zip: form.tax_zip?.trim() || null,
+      tax_state: form.tax_state || 'CA',
+      tax_rate: numOrDefault(form.tax_rate, 10.50),
+      tax_city: form.tax_city || null,
+      tax_county: form.tax_county || null,
+      fee_doc_prep: numOrDefault(form.fee_doc_prep, 85),
+      fee_fire_ext: numOrDefault(form.fee_fire_ext, 250),
+      fee_dmv: numOrDefault(form.fee_dmv, 37),
+      fee_admin: numOrDefault(form.fee_admin, 395),
+      fee_tire: numOrDefault(form.fee_tire, 10.50),
+      fee_warranty: numOrDefault(form.fee_warranty, 0),
+      fee_license_reg: form.fee_license_reg_manual
+        ? numOrDefault(form.fee_license_reg, 0)
+        : otdTotals.autoLicenseReg,
+      fee_license_reg_manual: !!form.fee_license_reg_manual,
+      total_tax: otdTotals.totalTax,
+      total_fees: otdTotals.totalFees,
+      out_the_door_price: otdTotals.otdPrice,
+      amount_financed: otdTotals.amountFinanced,
     }
 
     const { row, autoApproved } = buildNewQuoteRow(rawRow, profile)
@@ -394,30 +421,6 @@ export default function NewQuote() {
         </div>
 
         <div className={sectionClass}>
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Financing</h2>
-          <p className="text-xs text-gray-500 dark:text-dark-muted mb-3">
-            Note: Out The Door Price section with fees + tax coming next. For now, monthly payment is based on Sale Price minus down/trade/incentives.
-          </p>
-          <div className="grid grid-cols-3 gap-4">
-            <div><label className={labelClass}>Down Payment</label><input className={inputClass} value={form.down_payment} onChange={e => set('down_payment', e.target.value)} placeholder="0" /></div>
-            <div><label className={labelClass}>Trade-In Value</label><input className={inputClass} value={form.trade_value} onChange={e => set('trade_value', e.target.value)} placeholder="0" /></div>
-            <div><label className={labelClass}>Trade Payoff</label><input className={inputClass} value={form.trade_payoff} onChange={e => set('trade_payoff', e.target.value)} placeholder="0" /></div>
-            <div>
-              <label className={labelClass}>Term</label>
-              <select className={inputClass} value={form.term_months} onChange={e => set('term_months', e.target.value)}>
-                {[24,36,48,60,72,84].map(t => <option key={t} value={t}>{t} months</option>)}
-              </select>
-            </div>
-            <div><label className={labelClass}>Interest Rate %</label><input className={inputClass} value={form.interest_rate} onChange={e => set('interest_rate', e.target.value)} placeholder="6.99" /></div>
-            <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
-              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Est. Monthly Payment</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-dark-text font-numeric">${payment.toFixed(2)}</p>
-              <p className="text-gray-500 dark:text-dark-muted text-xs">{form.selected_tier} price · {form.term_months} mo</p>
-            </div>
-          </div>
-        </div>
-
-        <div className={sectionClass}>
           <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">RECAP — Deal Summary</h2>
           <div className="grid grid-cols-3 gap-4 mb-4">
             <div><label className={labelClass}>Cost of Vehicle</label><input className={inputClass} value={form.cost_of_vehicle} onChange={e => set('cost_of_vehicle', e.target.value)} placeholder="0" /></div>
@@ -486,6 +489,44 @@ export default function NewQuote() {
               installs={installs}
               onChange={setInstalls}
             />
+          </div>
+        </div>
+
+        {/* Feature B: Out The Door Price */}
+        <OutTheDoorSection
+          salePrice={selectedSalePrice}
+          packAmount={pack}
+          downPayment={numOrDefault(form.down_payment, 0)}
+          tradeValue={numOrDefault(form.trade_value, 0)}
+          tradePayoff={numOrDefault(form.trade_payoff, 0)}
+          incentiveTotal={incentiveTotal}
+          otd={form}
+          onChange={(patch) => setForm(f => ({ ...f, ...patch }))}
+          onTotalsChange={setOtdTotals}
+        />
+
+        {/* Financing */}
+        <div className={sectionClass}>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-dark-text mb-4 uppercase tracking-wider">Financing</h2>
+          <p className="text-xs text-gray-500 dark:text-dark-muted mb-3">
+            Customer finances the full Out The Door Price minus down payment, incentives, and net trade-in.
+          </p>
+          <div className="grid grid-cols-3 gap-4">
+            <div><label className={labelClass}>Down Payment</label><input className={inputClass} value={form.down_payment} onChange={e => set('down_payment', e.target.value)} placeholder="0" /></div>
+            <div><label className={labelClass}>Trade-In Value</label><input className={inputClass} value={form.trade_value} onChange={e => set('trade_value', e.target.value)} placeholder="0" /></div>
+            <div><label className={labelClass}>Trade Payoff</label><input className={inputClass} value={form.trade_payoff} onChange={e => set('trade_payoff', e.target.value)} placeholder="0" /></div>
+            <div>
+              <label className={labelClass}>Term</label>
+              <select className={inputClass} value={form.term_months} onChange={e => set('term_months', e.target.value)}>
+                {[24,36,48,60,72,84].map(t => <option key={t} value={t}>{t} months</option>)}
+              </select>
+            </div>
+            <div><label className={labelClass}>Interest Rate %</label><input className={inputClass} value={form.interest_rate} onChange={e => set('interest_rate', e.target.value)} placeholder="6.99" /></div>
+            <div className="bg-gray-50 dark:bg-dark-bg rounded-xl p-3 border border-gray-200 dark:border-dark-border">
+              <p className="text-gray-500 dark:text-dark-muted text-xs mb-1">Est. Monthly Payment</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-dark-text font-numeric">${payment.toFixed(2)}</p>
+              <p className="text-gray-500 dark:text-dark-muted text-xs">on ${otdTotals.amountFinanced.toLocaleString(undefined, { maximumFractionDigits: 0 })} financed · {form.term_months} mo</p>
+            </div>
           </div>
         </div>
 
