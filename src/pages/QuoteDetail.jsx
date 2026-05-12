@@ -73,7 +73,9 @@ export default function QuoteDetail() {
     fetchQuote()
     fetchSettings()
     fetchDocRequest()
-    fetchInstallTotals()
+    // NOTE: install totals are populated by LocalInstallsTable's onChange callback
+    // when it loads its rows. Don't fetch them separately here — causes a race
+    // condition where the RECAP renders before installs are loaded.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
@@ -93,13 +95,10 @@ export default function QuoteDetail() {
     setDocRequest(data || null)
   }
 
-  async function fetchInstallTotals() {
-    const { data, error: err } = await supabase
-      .from('quote_installs')
-      .select('dnp_amount, markup_amount, customer_total')
-      .eq('quote_id', id)
-    if (err) { console.error('install totals fetch failed:', err); return }
-    const totals = (data || []).reduce(
+  // Called by LocalInstallsTable's onChange with the current install rows.
+  // No DB query here — we just compute totals from the rows the table already has.
+  function recomputeInstallTotals(rows) {
+    const totals = (rows || []).reduce(
       (acc, r) => ({
         dnp: acc.dnp + numOrDefault(r.dnp_amount, 0),
         customer: acc.customer + numOrDefault(r.customer_total, 0),
@@ -570,7 +569,7 @@ export default function QuoteDetail() {
           <div className="mt-6 pt-6 border-t border-gray-200 dark:border-dark-border">
             <LocalInstallsTable
               quoteId={id}
-              onChange={fetchInstallTotals}
+              onChange={recomputeInstallTotals}
             />
           </div>
         </div>
