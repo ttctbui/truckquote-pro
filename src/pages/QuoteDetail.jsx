@@ -188,6 +188,7 @@ export default function QuoteDetail() {
       docs_submitted: data.docs_submitted || 'No',
       quote_number: data.quote_number || '',
       // Feature B: Out The Door Price fields
+      tax_address: data.tax_address || '',
       tax_zip: data.tax_zip || '',
       tax_state: data.tax_state || 'CA',
       tax_rate: toFormStr(data.tax_rate, '10.50'),
@@ -294,6 +295,7 @@ export default function QuoteDetail() {
       notes: form.notes,
       docs_submitted: form.docs_submitted,
       // Feature B: OTD fields
+      tax_address: form.tax_address?.trim() || null,
       tax_zip: form.tax_zip?.trim() || null,
       tax_state: form.tax_state || 'CA',
       tax_rate: numOrDefault(form.tax_rate, 10.50),
