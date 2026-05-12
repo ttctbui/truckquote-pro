@@ -15,7 +15,7 @@
 // Tax lookup: calls Supabase Edge Function `lookup-tax-rate` with ZIP, gets back rate.
 // Manual entry always available (toggle off "Auto" mode for non-CA).
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
 // ── helpers ──────────────────────────────────────────────────────────
@@ -98,23 +98,20 @@ export default function OutTheDoorSection({
     otdPrice - downPayment - incentiveTotal - netTradeIn
   )
 
-  // Notify parent of totals (in a useEffect would be cleaner, but this works
-  // because parent passes salePrice/etc as props that re-render this comp)
-  // Use a ref-less approach: just call onTotalsChange on every render when totals differ.
-  // Parent should memoize the callback to avoid loops.
-  if (onTotalsChange) {
-    // Defer to next tick to avoid React render-phase setState warnings
-    queueMicrotask(() => {
-      onTotalsChange({
-        totalTax,
-        totalFees,
-        otdPrice,
-        amountFinanced,
-        autoLicenseReg,
-        effectiveLicenseReg: fee_license_reg,
-      })
+  // Notify parent of computed totals only when they actually change.
+  // Using useEffect prevents the infinite render loop that occurred when
+  // we called onTotalsChange directly during render.
+  useEffect(() => {
+    if (!onTotalsChange) return
+    onTotalsChange({
+      totalTax,
+      totalFees,
+      otdPrice,
+      amountFinanced,
+      autoLicenseReg,
+      effectiveLicenseReg: fee_license_reg,
     })
-  }
+  }, [totalTax, totalFees, otdPrice, amountFinanced, autoLicenseReg, fee_license_reg, onTotalsChange])
 
   // ── tax lookup handler ─────────────────────────────────────────────
   async function handleTaxLookup() {
