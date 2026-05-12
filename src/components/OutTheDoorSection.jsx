@@ -58,10 +58,11 @@ export default function OutTheDoorSection({
   const [taxLookupError, setTaxLookupError] = useState('')
 
   // Pull values from `otd` (with defaults if not yet set)
+  const tax_address   = otd?.tax_address || ''
+  const tax_city      = otd?.tax_city || ''
   const tax_zip       = otd?.tax_zip || ''
   const tax_state     = otd?.tax_state || 'CA'
   const tax_rate      = numOrDefault(otd?.tax_rate, 10.50)
-  const tax_city      = otd?.tax_city || ''
   const tax_county    = otd?.tax_county || ''
 
   const fee_doc_prep  = numOrDefault(otd?.fee_doc_prep, 85)
@@ -115,6 +116,14 @@ export default function OutTheDoorSection({
 
   // ── tax lookup handler ─────────────────────────────────────────────
   async function handleTaxLookup() {
+    if (!tax_address.trim()) {
+      setTaxLookupError('Enter a street address')
+      return
+    }
+    if (!tax_city.trim()) {
+      setTaxLookupError('Enter a city')
+      return
+    }
     if (!/^\d{5}$/.test(tax_zip.trim())) {
       setTaxLookupError('Enter a 5-digit ZIP code')
       return
@@ -123,13 +132,18 @@ export default function OutTheDoorSection({
     setTaxLookupError('')
     try {
       const { data, error } = await supabase.functions.invoke('lookup-tax-rate', {
-        body: { zip: tax_zip.trim() },
+        body: {
+          address: tax_address.trim(),
+          city: tax_city.trim(),
+          zip: tax_zip.trim(),
+        },
       })
       if (error) throw error
       if (data?.error) throw new Error(data.error)
+      // CDTFA returns its own (possibly cleaner) city/county — overwrite to those
       onChange({
         tax_rate: data.rate,
-        tax_city: data.city || '',
+        tax_city: data.city || tax_city,
         tax_county: data.county || '',
         tax_state: data.state || 'CA',
       })
@@ -155,9 +169,30 @@ export default function OutTheDoorSection({
 
       {/* Tax lookup row */}
       <div className="bg-gray-50 dark:bg-dark-bg rounded-lg p-3 mb-4 border border-gray-200 dark:border-dark-border">
-        <div className="grid grid-cols-12 gap-3 items-end">
-          <div className="col-span-3">
-            <label className={labelClass}>ZIP (for tax lookup)</label>
+        <p className="text-xs text-gray-500 dark:text-dark-muted mb-2">
+          Delivery address for tax rate (district taxes can vary by address within a ZIP)
+        </p>
+        <div className="grid grid-cols-12 gap-3 mb-2">
+          <div className="col-span-6">
+            <label className={labelClass}>Street Address</label>
+            <input
+              className={inputClass}
+              value={tax_address}
+              onChange={(e) => onChange({ tax_address: e.target.value })}
+              placeholder="13443 Freeway Dr"
+            />
+          </div>
+          <div className="col-span-4">
+            <label className={labelClass}>City</label>
+            <input
+              className={inputClass}
+              value={tax_city}
+              onChange={(e) => onChange({ tax_city: e.target.value })}
+              placeholder="Santa Fe Springs"
+            />
+          </div>
+          <div className="col-span-2">
+            <label className={labelClass}>ZIP</label>
             <input
               className={inputClass}
               value={tax_zip}
@@ -166,6 +201,8 @@ export default function OutTheDoorSection({
               maxLength={5}
             />
           </div>
+        </div>
+        <div className="grid grid-cols-12 gap-3 items-end">
           <div className="col-span-2">
             <label className={labelClass}>State</label>
             <select
@@ -191,11 +228,11 @@ export default function OutTheDoorSection({
               placeholder="10.5"
             />
           </div>
-          <div className="col-span-4">
+          <div className="col-span-7">
             {tax_state === 'CA' ? (
               <button
                 onClick={handleTaxLookup}
-                disabled={taxLookupLoading || !tax_zip}
+                disabled={taxLookupLoading || !tax_zip || !tax_address || !tax_city}
                 className="w-full bg-ttc-blue hover:bg-ttc-blue-dark text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
               >
                 {taxLookupLoading ? 'Looking up…' : 'Lookup CA tax rate'}
@@ -207,10 +244,9 @@ export default function OutTheDoorSection({
             )}
           </div>
         </div>
-        {(tax_city || tax_county) && (
+        {tax_county && (
           <p className="text-xs text-gray-500 dark:text-dark-muted mt-2">
-            {tax_city && <>City: <span className="font-semibold">{tax_city}</span> · </>}
-            {tax_county && <>County: <span className="font-semibold">{tax_county}</span></>}
+            County: <span className="font-semibold">{tax_county}</span>
           </p>
         )}
         {taxLookupError && (
