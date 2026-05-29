@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
@@ -10,6 +10,8 @@ import { buildNewQuoteRow, logNewQuoteEvent } from '../lib/quoteActions'
 import LocalInstallsTable from '../components/LocalInstallsTable'
 // ── Feature B: Out The Door Price ────────────────────────────────────
 import OutTheDoorSection from '../components/OutTheDoorSection'
+// ── NEW: Draft persistence hook ──────────────────────────────────────
+import { useFormDraft } from '../hooks/useFormDraft'
 // ─────────────────────────────────────────────────────────────────────
 
 // Robust parsers — "0" stays 0, "" → default
@@ -22,6 +24,12 @@ function numOrNull(val) {
   if (val === '' || val == null) return null
   const n = typeof val === 'string' ? parseFloat(val) : Number(val)
   return Number.isFinite(n) ? n : null
+}
+// NEW: empty string → null for text columns where blank shouldn't be ''
+function textOrNull(val) {
+  if (val == null) return null
+  const s = String(val).trim()
+  return s === '' ? null : s
 }
 
 function calcPayment(amountFinanced, rate, months) {
@@ -44,42 +52,85 @@ const INCENTIVE_OPTIONS = [
 
 const DEFAULT_COMMISSION_RATE = 30
 
+const INITIAL_FORM = {
+  customer_name: '', customer_phone: '', customer_email: '', company_name: '',
+  vehicle_type: 'New',
+  year: '', make: 'Isuzu', make_other: '', model: '', model_other: '',
+  body_style: '', body_style_other: '', truck_description: '',
+  vin: '', stock_number: '', color: '',
+  msrp: '',
+  gross_profit_good: '', gross_profit_better: '', gross_profit_best: '',
+  selected_tier: 'better',
+  down_payment: '0', trade_value: '0', trade_payoff: '0',
+  term_months: '60', interest_rate: '6.99',
+  deal_type: 'Finance', deal_number: '',
+  cost_of_vehicle: '', pack_amount: '500',
+  selected_incentives: [],
+  incentive_total: '0',
+  notes: '',
+  docs_submitted: 'No',
+  tax_address: '', tax_zip: '', tax_state: 'CA', tax_rate: '10.50',
+  tax_city: '', tax_county: '',
+  fee_doc_prep: '85', fee_fire_ext: '250', fee_dmv: '37',
+  fee_admin: '395', fee_tire: '10.50', fee_warranty: '0',
+  fee_license_reg: '', fee_license_reg_manual: false,
+}
+
 export default function NewQuote() {
   const { profile, signOut } = useAuth()
   const navigate = useNavigate()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const [form, setForm] = useState({
-    customer_name: '', customer_phone: '', customer_email: '', company_name: '',
-    vehicle_type: 'New',
-    year: '', make: 'Isuzu', make_other: '', model: '', model_other: '',
-    body_style: '', body_style_other: '', truck_description: '',
-    vin: '', stock_number: '', color: '',
-    msrp: '',
-    gross_profit_good: '', gross_profit_better: '', gross_profit_best: '',
-    selected_tier: 'better',
-    down_payment: '0', trade_value: '0', trade_payoff: '0',
-    term_months: '60', interest_rate: '6.99',
-    deal_type: 'Finance', deal_number: '',
-    cost_of_vehicle: '', pack_amount: '500',
-    selected_incentives: [],
-    incentive_total: '0',
-    notes: '',
-    docs_submitted: 'No',
-    // Feature B: OTD fields with defaults matching Excel
-    tax_address: '', tax_zip: '', tax_state: 'CA', tax_rate: '10.50',
-    tax_city: '', tax_county: '',
-    fee_doc_prep: '85', fee_fire_ext: '250', fee_dmv: '37',
-    fee_admin: '395', fee_tire: '10.50', fee_warranty: '0',
-    fee_license_reg: '', fee_license_reg_manual: false,
-  })
-
+  const [form, setForm] = useState(INITIAL_FORM)
   const [installs, setInstalls] = useState([])
   const [otdTotals, setOtdTotals] = useState({
     totalTax: 0, totalFees: 0, otdPrice: 0, amountFinanced: 0,
     autoLicenseReg: 0, effectiveLicenseReg: 0,
   })
+
+  // ── Draft persistence ─────────────────────────────────────────────
+  const { savedDraft, isDirty, clearDraft, dismissDraft } = useFormDraft({
+    key: 'truckquote-new-quote-draft',
+    userId: profile?.id,
+    form,
+    installs,
+  })
+
+  // Prompt to restore on mount if a draft exists
+  const [showRestorePrompt, setShowRestorePrompt] = useState(false)
+  useEffect(() => {
+    if (savedDraft && (savedDraft.form || savedDraft.installs)) {
+      setShowRestorePrompt(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // mount only
+
+  function restoreDraft() {
+    if (savedDraft?.form) setForm({ ...INITIAL_FORM, ...savedDraft.form })
+    if (savedDraft?.installs) setInstalls(savedDraft.installs)
+    setShowRestorePrompt(false)
+  }
+  function startFresh() {
+    dismissDraft()
+    setShowRestorePrompt(false)
+  }
+
+  // In-app navigation guard (Cancel / Back buttons trigger React Router nav,
+  // which beforeunload doesn't catch — we ask explicitly)
+  function tryNavigateAway(destination = '/') {
+    if (!isDirty) {
+      navigate(destination)
+      return
+    }
+    const confirmed = window.confirm(
+      'You have unsaved changes on this quote.\n\n' +
+      'Your work is auto-saved as a draft and will be available when you return.\n\n' +
+      'Leave this page?'
+    )
+    if (confirmed) navigate(destination)
+  }
+  // ──────────────────────────────────────────────────────────────────
 
   function set(field, value) { setForm(f => ({ ...f, [field]: value })) }
 
@@ -151,19 +202,21 @@ export default function NewQuote() {
 
     const rawRow = {
       quote_number: genQuoteNumber(),
+      // NEW: auto-populate salesperson_id from the logged-in user
+      salesperson_id: profile?.id ?? null,
       customer_name: form.customer_name,
-      customer_phone: form.customer_phone,
-      customer_email: form.customer_email,
-      company_name: form.company_name,
+      customer_phone: textOrNull(form.customer_phone),
+      customer_email: textOrNull(form.customer_email),
+      company_name: textOrNull(form.company_name),
       vehicle_type: form.vehicle_type,
       year: parseInt(form.year) || null,
       make: finalMake,
       model: finalModel,
-      body_style: finalBodyStyle,
-      truck_description: form.truck_description,
-      vin: form.vin,
-      stock_number: form.stock_number,
-      color: form.color,
+      body_style: textOrNull(finalBodyStyle),
+      truck_description: textOrNull(form.truck_description),
+      vin: textOrNull(form.vin),
+      stock_number: textOrNull(form.stock_number),
+      color: textOrNull(form.color),
       msrp: numOrNull(form.msrp),
       gross_profit_good:   numOrNull(form.gross_profit_good),
       gross_profit_better: numOrNull(form.gross_profit_better),
@@ -172,7 +225,6 @@ export default function NewQuote() {
       price_better: salePriceByTier.better || null,
       price_best:   salePriceByTier.best   || null,
       selected_tier: form.selected_tier,
-      // numOrDefault so "0" saves as 0, not as the fallback
       down_payment: numOrDefault(form.down_payment, 0),
       trade_value:  numOrDefault(form.trade_value,  0),
       trade_payoff: numOrDefault(form.trade_payoff, 0),
@@ -180,23 +232,22 @@ export default function NewQuote() {
       interest_rate: numOrDefault(form.interest_rate, 6.99),
       monthly_payment: payment,
       deal_type: form.deal_type,
-      deal_number: form.deal_number?.trim() || null,
+      // NEW: explicit null when blank — keeps the Quotes tab filter working
+      deal_number: textOrNull(form.deal_number),
       cost_of_vehicle: numOrNull(form.cost_of_vehicle),
-      // CRITICAL FIX: "|| 500" was eating the 0 entered by user
       pack_amount: numOrDefault(form.pack_amount, 500),
       gross_profit: selectedGp,
       commission: commission,
       selected_incentives: form.selected_incentives,
       incentive_total: numOrDefault(form.incentive_total, 0),
-      notes: form.notes,
+      notes: textOrNull(form.notes),
       docs_submitted: form.docs_submitted,
-      // Feature B: OTD fields
-      tax_address: form.tax_address?.trim() || null,
-      tax_zip: form.tax_zip?.trim() || null,
+      tax_address: textOrNull(form.tax_address),
+      tax_zip: textOrNull(form.tax_zip),
       tax_state: form.tax_state || 'CA',
       tax_rate: numOrDefault(form.tax_rate, 10.50),
-      tax_city: form.tax_city || null,
-      tax_county: form.tax_county || null,
+      tax_city: textOrNull(form.tax_city),
+      tax_county: textOrNull(form.tax_county),
       fee_doc_prep: numOrDefault(form.fee_doc_prep, 85),
       fee_fire_ext: numOrDefault(form.fee_fire_ext, 250),
       fee_dmv: numOrDefault(form.fee_dmv, 37),
@@ -223,15 +274,14 @@ export default function NewQuote() {
 
     if (err) { setSaving(false); setError(err.message); return }
 
-    // Feature A: bulk-insert any installs
     const installRows = installs
       .filter((r) => r.description || r.dnp_amount || r.markup_amount || r.customer_total)
       .map((r, idx) => ({
         quote_id: newQuote.id,
         position: idx + 1,
-        description: r.description || null,
-        vendor: r.vendor || null,
-        po_number: r.po_number || null,
+        description: textOrNull(r.description),
+        vendor: textOrNull(r.vendor),
+        po_number: textOrNull(r.po_number),
         dnp_amount: numOrNull(r.dnp_amount),
         markup_amount: numOrNull(r.markup_amount),
         customer_total: numOrNull(r.customer_total),
@@ -243,6 +293,9 @@ export default function NewQuote() {
     }
 
     setSaving(false)
+
+    // Clear the draft AFTER successful save so unsaved-changes warning doesn't fire on navigate
+    clearDraft()
 
     await logNewQuoteEvent({ quoteId: newQuote.id, autoApproved, profile, quote: newQuote })
 
@@ -271,12 +324,53 @@ export default function NewQuote() {
         onSignOut={signOut}
       />
 
+      {/* Draft restore prompt */}
+      {showRestorePrompt && (
+        <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900 px-6 py-3">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+            <div className="text-sm text-amber-900 dark:text-amber-200">
+              <span className="font-semibold">💾 Draft found.</span>{' '}
+              You have an unsaved quote from{' '}
+              <span className="font-mono">
+                {savedDraft?._savedAt
+                  ? new Date(savedDraft._savedAt).toLocaleString()
+                  : 'earlier'}
+              </span>.
+            </div>
+            <div className="flex gap-2 flex-shrink-0">
+              <button
+                onClick={restoreDraft}
+                className="bg-ttc-blue hover:bg-ttc-blue-dark text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+              >
+                Restore Draft
+              </button>
+              <button
+                onClick={startFresh}
+                className="bg-white dark:bg-dark-surface border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/40 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+              >
+                Start Fresh
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border px-6 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/')} className="text-gray-500 dark:text-dark-muted hover:text-gray-900 dark:hover:text-dark-text text-sm">← Back</button>
+            <button
+              onClick={() => tryNavigateAway('/')}
+              className="text-gray-500 dark:text-dark-muted hover:text-gray-900 dark:hover:text-dark-text text-sm"
+            >
+              ← Back
+            </button>
             <span className="text-gray-300 dark:text-dark-border">|</span>
             <span className="text-gray-900 dark:text-dark-text font-semibold">New Quote</span>
+            {isDirty && (
+              <span className="ml-2 text-xs text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/50 px-2 py-0.5 rounded-full font-medium">
+                Unsaved · auto-saving
+              </span>
+            )}
           </div>
           <div className="flex gap-3">
             <button
@@ -532,7 +626,12 @@ export default function NewQuote() {
         </div>
 
         <div className="flex justify-end gap-3 mt-6">
-          <button onClick={() => navigate('/')} className="text-gray-500 dark:text-dark-muted hover:text-gray-900 dark:hover:text-dark-text px-4 py-2 text-sm transition-colors">Cancel</button>
+          <button
+            onClick={() => tryNavigateAway('/')}
+            className="text-gray-500 dark:text-dark-muted hover:text-gray-900 dark:hover:text-dark-text px-4 py-2 text-sm transition-colors"
+          >
+            Cancel
+          </button>
           <button onClick={handleSave} disabled={saving}
             className="bg-ttc-blue hover:bg-ttc-blue-dark text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
             {saving ? 'Saving…' : submitLabel}
