@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
@@ -82,38 +82,72 @@ export default function NewQuote() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const [form, setForm] = useState(INITIAL_FORM)
-  const [installs, setInstalls] = useState([])
+  // Compose the localStorage key (per-user)
+  const draftKey = profile?.id
+    ? `truckquote-new-quote-draft::${profile.id}`
+    : 'truckquote-new-quote-draft'
+
+  // Lazy initializers — read from localStorage on first render, every time the
+  // component mounts. If user Alt-Tabs and React remounts, they still see their
+  // typed data because we re-hydrate from storage. No prompt, no friction.
+  const [form, setForm] = useState(() => {
+    if (typeof window === 'undefined') return INITIAL_FORM
+    try {
+      const raw = window.localStorage.getItem(draftKey)
+      if (!raw) return INITIAL_FORM
+      const parsed = JSON.parse(raw)
+      return parsed?.form ? { ...INITIAL_FORM, ...parsed.form } : INITIAL_FORM
+    } catch {
+      return INITIAL_FORM
+    }
+  })
+  const [installs, setInstalls] = useState(() => {
+    if (typeof window === 'undefined') return []
+    try {
+      const raw = window.localStorage.getItem(draftKey)
+      if (!raw) return []
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed?.installs) ? parsed.installs : []
+    } catch {
+      return []
+    }
+  })
   const [otdTotals, setOtdTotals] = useState({
     totalTax: 0, totalFees: 0, otdPrice: 0, amountFinanced: 0,
     autoLicenseReg: 0, effectiveLicenseReg: 0,
   })
 
+  // Determine if we hydrated from a draft (used for the "restored" indicator)
+  const [didRestoreDraft] = useState(() => {
+    if (typeof window === 'undefined') return false
+    try {
+      const raw = window.localStorage.getItem(draftKey)
+      if (!raw) return false
+      const parsed = JSON.parse(raw)
+      return !!(parsed?.form || (Array.isArray(parsed?.installs) && parsed.installs.length))
+    } catch {
+      return false
+    }
+  })
+  const [showRestoredBadge, setShowRestoredBadge] = useState(didRestoreDraft)
+
   // ── Draft persistence ─────────────────────────────────────────────
-  const { savedDraft, isDirty, clearDraft, dismissDraft } = useFormDraft({
+  // Note: useFormDraft handles ongoing auto-save + beforeunload warning.
+  // We use our own initial-hydration above so re-mounts don't show a prompt.
+  const { isDirty, clearDraft } = useFormDraft({
     key: 'truckquote-new-quote-draft',
     userId: profile?.id,
     form,
     installs,
   })
 
-  // Prompt to restore on mount if a draft exists
-  const [showRestorePrompt, setShowRestorePrompt] = useState(false)
-  useEffect(() => {
-    if (savedDraft && (savedDraft.form || savedDraft.installs)) {
-      setShowRestorePrompt(true)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // mount only
-
-  function restoreDraft() {
-    if (savedDraft?.form) setForm({ ...INITIAL_FORM, ...savedDraft.form })
-    if (savedDraft?.installs) setInstalls(savedDraft.installs)
-    setShowRestorePrompt(false)
-  }
-  function startFresh() {
-    dismissDraft()
-    setShowRestorePrompt(false)
+  // Explicit "discard draft" — used by a button so user has an out
+  function discardDraft() {
+    if (!window.confirm('Discard all the work on this quote? This cannot be undone.')) return
+    setForm(INITIAL_FORM)
+    setInstalls([])
+    clearDraft()
+    setShowRestoredBadge(false)
   }
 
   // In-app navigation guard (Cancel / Back buttons trigger React Router nav,
@@ -324,31 +358,25 @@ export default function NewQuote() {
         onSignOut={signOut}
       />
 
-      {/* Draft restore prompt */}
-      {showRestorePrompt && (
-        <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900 px-6 py-3">
+      {/* Draft restored — small unobtrusive indicator */}
+      {showRestoredBadge && (
+        <div className="bg-blue-50 dark:bg-blue-950/40 border-b border-blue-200 dark:border-blue-900 px-6 py-2">
           <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
-            <div className="text-sm text-amber-900 dark:text-amber-200">
-              <span className="font-semibold">💾 Draft found.</span>{' '}
-              You have an unsaved quote from{' '}
-              <span className="font-mono">
-                {savedDraft?._savedAt
-                  ? new Date(savedDraft._savedAt).toLocaleString()
-                  : 'earlier'}
-              </span>.
+            <div className="text-xs text-blue-900 dark:text-blue-200">
+              💾 Picked up where you left off — your previous work has been restored.
             </div>
             <div className="flex gap-2 flex-shrink-0">
               <button
-                onClick={restoreDraft}
-                className="bg-ttc-blue hover:bg-ttc-blue-dark text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                onClick={() => setShowRestoredBadge(false)}
+                className="text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-blue-100 text-xs font-medium"
               >
-                Restore Draft
+                Dismiss
               </button>
               <button
-                onClick={startFresh}
-                className="bg-white dark:bg-dark-surface border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/40 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                onClick={discardDraft}
+                className="text-red-700 dark:text-red-300 hover:text-red-900 dark:hover:text-red-100 text-xs font-medium"
               >
-                Start Fresh
+                Discard & start fresh
               </button>
             </div>
           </div>
